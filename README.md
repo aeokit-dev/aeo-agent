@@ -120,6 +120,8 @@ node bin/aeokit-agent.js doctor
 
 Tests use deterministic fixtures and do not consume Codex or Claude quota.
 
+The GitHub Actions definition is checked in as `.github/ci.yml.example`; move it to `.github/workflows/ci.yml` when the publishing token has GitHub's `workflow` scope.
+
 ## License
 
 MIT
