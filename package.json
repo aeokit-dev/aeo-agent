@@ -1,0 +1,47 @@
+{
+  "name": "aeokit-agent",
+  "version": "0.1.0",
+  "description": "A local-first agent harness that investigates and improves answer-engine visibility.",
+  "type": "module",
+  "bin": {
+    "aeokit-agent": "bin/aeokit-agent.js",
+    "aeokit": "bin/aeokit-agent.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/aeokit-agent.js && node --check src/cli.js && node --test",
+    "prepublishOnly": "npm run check"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "keywords": [
+    "aeo",
+    "geo",
+    "agent",
+    "codex",
+    "claude",
+    "ai-visibility"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aeokit-dev/aeokit-agent.git"
+  },
+  "homepage": "https://github.com/aeokit-dev/aeokit-agent#readme",
+  "bugs": {
+    "url": "https://github.com/aeokit-dev/aeokit-agent/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "aeo-preview": "^0.1.0"
+  }
+}

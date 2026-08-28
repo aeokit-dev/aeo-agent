@@ -1,0 +1,5 @@
+node_modules/
+.aeokit/
+.aeo/
+*.log
+.DS_Store
