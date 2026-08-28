@@ -11,7 +11,7 @@ import { executeTool, toolCatalog } from './tools.js';
 const version = '0.1.0';
 
 function help() {
-  console.log(`AEOkit Agent ${version} — evidence-backed AEO execution\n\nUsage:\n  aeokit-agent init <url> --brand <name> --category <category> [options]\n  aeokit-agent audit [--offline] [--json]\n  aeokit-agent observe --query <buyer-question> --provider codex|claude|fixture\n  aeokit-agent plan --query <buyer-question> [--provider codex] [--observer none]\n  aeokit-agent apply [session-id|latest] [--provider codex] [--allow-dirty]\n  aeokit-agent improve --query <buyer-question> [--apply]\n  aeokit-agent verify [session-id|latest] [--provider codex] [--observer none]\n  aeokit-agent skills [--json]\n  aeokit-agent tools [--json]\n  aeokit-agent doctor [--json]\n\nEvidence levels:\n  deterministic verification · directional grounded simulation · production observation\n\nAEOkit Agent never deploys or claims that a local patch improved public rankings.`);
+  console.log(`AEO Agent ${version} by AEOkit — evidence-backed AEO execution\n\nUsage:\n  aeo-agent init <url> --brand <name> --category <category> [options]\n  aeo-agent audit [--offline] [--json]\n  aeo-agent observe --query <buyer-question> --provider codex|claude|fixture\n  aeo-agent plan --query <buyer-question> [--provider codex] [--observer none]\n  aeo-agent apply [session-id|latest] [--provider codex] [--allow-dirty]\n  aeo-agent improve --query <buyer-question> [--apply]\n  aeo-agent verify [session-id|latest] [--provider codex] [--observer none]\n  aeo-agent skills [--json]\n  aeo-agent tools [--json]\n  aeo-agent doctor [--json]\n\nEvidence levels:\n  deterministic verification · directional grounded simulation · production observation\n\nAEO Agent never deploys or claims that a local patch improved public rankings.`);
 }
 
 function printAudit(audit) {
@@ -91,7 +91,7 @@ export async function main(argv, cwd = process.cwd()) {
     const options = commonOptions(flags);
     const result = await createPlan(cwd, options);
     if (flags.json && command === 'plan' && !flags.apply) console.log(JSON.stringify(result, null, 2));
-    else if (!flags.json) console.log(`\n${result.proposal}\n\nSession ${result.id}\nApply with: aeokit-agent apply ${result.id}`);
+    else if (!flags.json) console.log(`\n${result.proposal}\n\nSession ${result.id}\nApply with: aeo-agent apply ${result.id}`);
     if (command === 'improve' && flags.apply) {
       const applied = await applyPlan(cwd, result.id, { ...options, allowDirty: Boolean(flags['allow-dirty']) });
       if (flags.json) console.log(JSON.stringify(applied, null, 2));
@@ -120,7 +120,7 @@ export async function main(argv, cwd = process.cwd()) {
   if (command === 'skills') {
     const skills = await discoverSkills(cwd);
     if (flags.json) console.log(JSON.stringify(skills.map(({ instructions, ...skill }) => skill), null, 2));
-    else if (!skills.length) console.log('No optional AEOkit skills installed. Install from aeokit-dev/aeokit-skills.');
+    else if (!skills.length) console.log('No optional AEO skills installed. Install from aeokit-dev/aeo-skills.');
     else skills.forEach((skill) => console.log(`${skill.name.padEnd(20)} ${skill.description}`));
     return;
   }

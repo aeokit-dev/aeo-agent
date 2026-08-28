@@ -84,7 +84,7 @@ export async function applyPlan(cwd, requested, options = {}) {
   session.applyStartedAt = new Date().toISOString();
   await writeJson(path.join(sessionDir, 'session.json'), session);
   options.onStage?.(`Applying approved proposal with ${options.provider || session.operatorProvider}`);
-  const bin = JSON.stringify(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'aeokit-agent.js'));
+  const bin = JSON.stringify(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'aeo-agent.js'));
   const operator = await runProvider(options.provider || session.operatorProvider, applyPrompt({
     config,
     query: session.query,

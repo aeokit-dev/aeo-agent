@@ -3,6 +3,6 @@
 import { main } from '../src/cli.js';
 
 main(process.argv.slice(2)).catch((error) => {
-  console.error(`aeokit-agent: ${error.message}`);
+  console.error(`aeo-agent: ${error.message}`);
   process.exitCode = 1;
 });

@@ -99,7 +99,7 @@ async function fetchText(url, timeout = 15_000) {
   const response = await fetch(url, {
     redirect: 'follow',
     signal: AbortSignal.timeout(timeout),
-    headers: { 'user-agent': 'AEOkit-Agent/0.1 (+https://github.com/aeokit-dev/aeokit-agent)' }
+    headers: { 'user-agent': 'AEO-Agent/0.1 (+https://github.com/aeokit-dev/aeo-agent)' }
   });
   const text = (await response.text()).slice(0, MAX_BYTES);
   return {

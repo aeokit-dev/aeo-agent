@@ -26,7 +26,7 @@ export async function loadConfig(cwd) {
   try {
     return await readJson(path.join(stateDir(cwd), 'config.json'));
   } catch (error) {
-    if (error.code === 'ENOENT') throw new Error(`not initialized; run 'aeokit-agent init <url>' first`);
+    if (error.code === 'ENOENT') throw new Error(`not initialized; run 'aeo-agent init <url>' first`);
     throw error;
   }
 }
