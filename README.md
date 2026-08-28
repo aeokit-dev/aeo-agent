@@ -9,13 +9,13 @@ It runs through an existing authenticated Codex or Claude Code installation. No 
 ## The job
 
 ```console
-$ npx aeokit-agent init https://example.com \
+$ npm exec --yes --package github:aeokit-dev/aeokit-agent -- aeokit-agent init https://example.com \
     --brand "Example" \
     --category "API testing" \
     --audience "backend teams" \
     --competitors "Competitor A,Competitor B"
 
-$ npx aeokit-agent improve \
+$ npm exec --yes --package github:aeokit-dev/aeokit-agent -- aeokit-agent improve \
     --query "What are the best open-source API testing tools?" \
     --provider codex \
     --observer claude
@@ -99,7 +99,7 @@ AEOkit Agent reads optional Agent Skills from:
 The companion [aeokit-skills](https://github.com/aeokit-dev/aeokit-skills) repository contains the same focused workflows for AEOkit Agent, Codex, and Claude Code:
 
 ```bash
-npx aeokit-skills add aeo-improve --to aeokit --scope project
+npm exec --yes --package github:aeokit-dev/aeokit-skills -- aeokit-skills add aeo-improve --to aeokit --scope project
 ```
 
 ## Architecture
