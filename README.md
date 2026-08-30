@@ -56,8 +56,9 @@ dismissed banner stays hidden until another version is released.
 
 ## Publish a macOS release
 
-The release workflow builds, signs, notarizes, and publishes the DMG and ZIP
-when a version tag is pushed. Configure these GitHub Actions secrets first:
+The release workflow publishes the DMG and ZIP when a version tag is pushed.
+Without Apple credentials it publishes an unsigned build; macOS will warn users
+that it cannot verify the developer. For trusted distribution, configure:
 
 - `MAC_CSC_LINK`: base64-encoded Developer ID Application `.p12`
 - `MAC_CSC_KEY_PASSWORD`: password for the exported certificate
