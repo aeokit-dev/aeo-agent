@@ -200,6 +200,8 @@ export function App() {
         const context = await api.agentContext(
           projectId,
           project?.name || "Local workspace",
+          projects,
+          prompt,
           addActivity,
         );
         const answer = await api.acpSend(
