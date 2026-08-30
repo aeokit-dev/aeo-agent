@@ -51,6 +51,7 @@ import type {
 import { agentModes, type AgentMode } from "../shared/agent-experience";
 import { parseContentBlocks, serializeContentForClipboard } from "./artifacts";
 import type { AgentStreamEvent } from "../shared/streaming";
+import { startPeriodicUpdateChecks } from "./update-checks";
 
 const selectedProjectKey = "aeokit-agent-project";
 const dismissedUpdateKey = "aeokit-agent-dismissed-update";
@@ -120,19 +121,23 @@ export function App() {
   useEffect(() => {
     if (!window.aeokitDesktop) return;
     let live = true;
-    void window.aeokitDesktop
-      .checkForUpdate()
-      .then((update) => {
-        if (
-          live &&
-          update &&
-          localStorage.getItem(dismissedUpdateKey) !== update.latestVersion
-        )
-          setAvailableUpdate(update);
-      })
-      .catch(() => undefined);
+    const checkForUpdate = () => {
+      void window.aeokitDesktop
+        ?.checkForUpdate()
+        .then((update) => {
+          if (
+            live &&
+            update &&
+            localStorage.getItem(dismissedUpdateKey) !== update.latestVersion
+          )
+            setAvailableUpdate(update);
+        })
+        .catch(() => undefined);
+    };
+    const stopUpdateChecks = startPeriodicUpdateChecks(checkForUpdate);
     return () => {
       live = false;
+      stopUpdateChecks();
     };
   }, []);
 
