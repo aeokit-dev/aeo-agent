@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { AeoKitApi, initialSettings, normalizeApiUrl } from "./api";
+import {
+  AeoKitApi,
+  initialSettings,
+  normalizeApiUrl,
+  requestsPortfolioContext,
+} from "./api";
 
 describe("AeoKitApi", () => {
   it("migrates the old cross-origin local API default to the dev proxy", () => {
@@ -95,29 +100,60 @@ describe("AeoKitApi", () => {
     expect(events).toEqual(["activity", "text_delta", "text_delta", "done"]);
   });
 
-  it("grounds local agents with the active project and other project summaries", async () => {
+  it("recognizes requests that need evidence from every project", () => {
+    expect(requestsPortfolioContext("check all projects")).toBe(true);
+    expect(requestsPortfolioContext("what about my other projects?")).toBe(
+      true,
+    );
+    expect(requestsPortfolioContext("summarize this dashboard")).toBe(false);
+  });
+
+  it("loads evidence for all projects for portfolio questions", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ mentionRate: 42 }),
+      json: async () => ({ score: 42 }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    const api = new AeoKitApi({ apiUrl: "/api", token: "" });
+    const api = new AeoKitApi({ apiUrl: "https://example.com/api", token: "" });
+    const projects = [
+      { id: "one", name: "One", website: "https://one.test" },
+      { id: "two", name: "Two", website: "https://two.test" },
+    ];
+
     const context = JSON.parse(
-      await api.agentContext("picks", "Picks.so", [
-        { id: "picks", name: "Picks.so", website: "https://picks.so" },
-        { id: "other", name: "Other", website: "https://other.test" },
-      ]),
+      await api.agentContext("one", "One", projects, "compare all projects"),
     );
-    expect(context.activeProject.name).toBe("Picks.so");
-    expect(context.projectCatalog).toHaveLength(2);
-    expect(context.otherProjectSummaries[0]).toMatchObject({
-      project: { id: "other" },
-      dashboard: { mentionRate: 42 },
-    });
+
+    expect(context.scope).toBe("all-projects");
+    expect(context.projects).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(10);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/other/visibility",
+      "https://example.com/api/projects/two/dashboard",
       expect.any(Object),
     );
+  });
+
+  it("keeps single-project questions scoped to the selected project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new AeoKitApi({ apiUrl: "https://example.com/api", token: "" });
+    const projects = [
+      { id: "one", name: "One", website: "" },
+      { id: "two", name: "Two", website: "" },
+    ];
+
+    const context = JSON.parse(
+      await api.agentContext("one", "One", projects, "summarize visibility"),
+    );
+
+    expect(context.scope).toBe("selected-project");
+    expect(context.projectCatalog).toHaveLength(2);
+    expect(context.projects).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });

@@ -219,6 +219,7 @@ export function App() {
           projectId,
           project?.name || "Local workspace",
           projects,
+          prompt,
           addActivity,
         );
         const assistantId = crypto.randomUUID();

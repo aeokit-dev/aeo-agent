@@ -40,6 +40,10 @@ export function normalizeApiUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+export function requestsPortfolioContext(prompt: string): boolean {
+  return /\b(projects|portfolio|cross[- ]project)\b/i.test(prompt);
+}
+
 export class AeoKitApi {
   constructor(private settings: ClientSettings) {}
 
@@ -188,71 +192,51 @@ export class AeoKitApi {
     projectId: string,
     projectName: string,
     projects: Project[],
+    prompt: string,
     onProgress?: (label: string) => void,
   ) => {
     if (projectId === "local-workspace")
-      return JSON.stringify({
-        activeProject: { id: projectId, name: projectName },
-        projects,
-      });
-    const paths = [
-      `/projects/${projectId}`,
-      `/projects/${projectId}/dashboard`,
-      `/projects/${projectId}/visibility`,
-      `/projects/${projectId}/prompts`,
-      `/projects/${projectId}/citations`,
-    ];
-    const labels = [
-      "Reading project configuration",
-      "Reading dashboard metrics",
-      "Reading visibility data",
-      "Reading tracked prompts",
-      "Reading citation evidence",
-    ];
-    const values = await Promise.allSettled(
-      paths.map((path, index) =>
-        this.request<unknown>(path).finally(() => onProgress?.(labels[index])),
-      ),
+      return JSON.stringify({ project: projectName, projectCatalog: projects });
+
+    const allProjects = projects.filter(
+      (item) => item.id !== "local-workspace",
     );
-    const context = Object.fromEntries(
-      paths.map((path, index) => [
-        path.split("/").at(-1),
-        values[index].status === "fulfilled"
-          ? values[index].value
-          : { unavailable: true },
-      ]),
-    );
-    onProgress?.("Reading other project summaries");
-    const otherProjects = projects
-      .filter((item) => item.id !== projectId && item.id !== "local-workspace")
-      .slice(0, 20);
-    const summaries = await Promise.all(
-      otherProjects.map(async (item) => {
-        const [dashboard, visibility] = await Promise.allSettled([
-          this.request<unknown>(`/projects/${item.id}/dashboard`),
-          this.request<unknown>(`/projects/${item.id}/visibility`),
-        ]);
+    const selected =
+      allProjects.find((item) => item.id === projectId) ||
+      ({ id: projectId, name: projectName, website: "" } satisfies Project);
+    const targets = requestsPortfolioContext(prompt) ? allProjects : [selected];
+    const evidence = await Promise.all(
+      targets.map(async (target) => {
+        const base = `/projects/${encodeURIComponent(target.id)}`;
+        const paths = {
+          project: base,
+          dashboard: `${base}/dashboard`,
+          visibility: `${base}/visibility`,
+          prompts: `${base}/prompts`,
+          citations: `${base}/citations`,
+        };
+        const values = await Promise.allSettled(
+          Object.values(paths).map((path) => this.request<unknown>(path)),
+        );
+        onProgress?.(`Reading evidence for ${target.name}`);
         return {
-          project: item,
-          dashboard:
-            dashboard.status === "fulfilled"
-              ? dashboard.value
-              : { unavailable: true },
-          visibility:
-            visibility.status === "fulfilled"
-              ? visibility.value
-              : { unavailable: true },
+          project: target,
+          evidence: Object.fromEntries(
+            Object.keys(paths).map((key, index) => [
+              key,
+              values[index].status === "fulfilled"
+                ? values[index].value
+                : { unavailable: true },
+            ]),
+          ),
         };
       }),
     );
     return JSON.stringify({
-      activeProject: projects.find((item) => item.id === projectId) || {
-        id: projectId,
-        name: projectName,
-      },
-      activeProjectData: context,
-      projectCatalog: projects,
-      otherProjectSummaries: summaries,
+      scope: targets.length > 1 ? "all-projects" : "selected-project",
+      selectedProjectId: projectId,
+      projectCatalog: allProjects,
+      projects: evidence,
     }).slice(0, 120_000);
   };
   sessions = async (projectId: string) =>
