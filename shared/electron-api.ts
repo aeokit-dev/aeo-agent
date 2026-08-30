@@ -34,5 +34,10 @@ export interface AgentDesktopApi {
     method: string;
     body?: string;
   }): Promise<{ status: number; body: unknown }>;
+  checkForUpdate(): Promise<{
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;
+  } | null>;
 }
 import type { AgentStreamEvent } from "./streaming";

@@ -17,6 +17,7 @@ const api: AgentDesktopApi = {
   loadSettings: () => ipcRenderer.invoke("settings:load"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   runtimeRequest: (input) => ipcRenderer.invoke("runtime:request", input),
+  checkForUpdate: () => ipcRenderer.invoke("updates:check"),
 };
 
 contextBridge.exposeInMainWorld("aeokitDesktop", api);

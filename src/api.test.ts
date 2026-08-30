@@ -135,6 +135,7 @@ describe("AeoKitApi", () => {
       loadSettings: vi.fn(),
       saveSettings: vi.fn(),
       runtimeRequest: vi.fn(),
+      checkForUpdate: vi.fn(),
     };
     const api = new AeoKitApi({ apiUrl: "/api", token: "" });
     const turn = api.acpSend(

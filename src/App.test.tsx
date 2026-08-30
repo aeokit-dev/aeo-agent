@@ -12,6 +12,7 @@ import {
   Message,
   MessageActions,
   SettingsDialog,
+  UpdateBanner,
   VisualizationCard,
 } from "./App";
 
@@ -42,6 +43,35 @@ describe("Composer", () => {
     fireEvent.change(message, { target: { value: "First line" } });
     fireEvent.keyDown(message, { key: "Enter", shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("UpdateBanner", () => {
+  it("links to the release and can be dismissed", () => {
+    const onDismiss = vi.fn();
+    render(
+      <UpdateBanner
+        update={{
+          currentVersion: "0.1.0",
+          latestVersion: "0.2.0",
+          releaseUrl:
+            "https://github.com/aeokit-dev/aeo-agent/releases/tag/v0.2.0",
+        }}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "AeoKit Agent 0.2.0 is available",
+    );
+    expect(
+      screen.getByRole("link", { name: /Download update/ }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/aeokit-dev/aeo-agent/releases/tag/v0.2.0",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss update" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 });
 
