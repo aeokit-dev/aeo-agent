@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
 import path from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   agentProviders,
   runAcpTurn,
   type ProviderId,
 } from "../server/acp-bridge";
+import { buildAgentPrompt, type AgentMode } from "../shared/agent-experience";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const activeTurns = new Map<string, AbortController>();
@@ -26,6 +28,7 @@ function validSender(event: Electron.IpcMainInvokeEvent) {
 }
 
 function createWindow() {
+  const developmentIcon = path.join(app.getAppPath(), "build", "icon.icns");
   const window = new BrowserWindow({
     show: false,
     width: 1280,
@@ -34,6 +37,7 @@ function createWindow() {
     minHeight: 600,
     title: "AeoKit Agent",
     backgroundColor: "#ffffff",
+    ...(!app.isPackaged ? { icon: developmentIcon } : {}),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: path.join(directory, "../preload/index.cjs"),
@@ -62,6 +66,48 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (!app.isPackaged && process.platform === "darwin") {
+    const icon = nativeImage.createFromPath(
+      path.join(app.getAppPath(), "build", "icon.icns"),
+    );
+    if (!icon.isEmpty()) app.dock?.setIcon(icon);
+  }
+  const settingsPath = path.join(
+    app.getPath("userData"),
+    "connection-settings.json",
+  );
+  ipcMain.handle("settings:load", async (event) => {
+    if (!validSender(event)) throw new Error("Invalid IPC sender");
+    try {
+      const value = JSON.parse(await readFile(settingsPath, "utf8")) as {
+        apiUrl?: unknown;
+        token?: unknown;
+      };
+      if (typeof value.apiUrl !== "string" || typeof value.token !== "string")
+        return null;
+      return { apiUrl: value.apiUrl, token: value.token };
+    } catch {
+      return null;
+    }
+  });
+  ipcMain.handle(
+    "settings:save",
+    async (event, settings: { apiUrl?: unknown; token?: unknown }) => {
+      if (!validSender(event)) throw new Error("Invalid IPC sender");
+      if (
+        typeof settings?.apiUrl !== "string" ||
+        settings.apiUrl.length > 2_000 ||
+        typeof settings.token !== "string" ||
+        settings.token.length > 20_000
+      )
+        throw new Error("Invalid settings");
+      await writeFile(
+        settingsPath,
+        JSON.stringify({ apiUrl: settings.apiUrl, token: settings.token }),
+        { mode: 0o600 },
+      );
+    },
+  );
   ipcMain.handle(
     "runtime:request",
     async (
@@ -119,6 +165,7 @@ app.whenReady().then(() => {
         context: string;
         history: Array<{ role: string; content: string }>;
         prompt: string;
+        mode?: AgentMode;
       },
     ) => {
       if (!validSender(event)) throw new Error("Invalid IPC sender");
@@ -134,22 +181,20 @@ app.whenReady().then(() => {
       const controller = new AbortController();
       activeTurns.set(input.requestId, controller);
       try {
-        const transcript = input.history
-          .slice(-20)
-          .map(
-            (message) =>
-              `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`,
-          )
-          .join("\n\n");
         return await runAcpTurn(
           input.provider,
           input.model,
-          `You are AeoKit Agent, an AEO analyst. Use the supplied AeoKit runtime evidence. Be concise, evidence-led, and never invent metrics. Do not inspect or modify files or run commands.\n\nAeoKit runtime context:\n${input.context}\n\nConversation:\n${transcript || "No earlier messages."}\n\nUser: ${input.prompt}`,
+          buildAgentPrompt({
+            context: input.context,
+            history: input.history,
+            prompt: input.prompt,
+            mode: input.mode,
+          }),
           controller.signal,
-          (label) =>
+          (streamEvent) =>
             event.sender.send("agents:progress", {
               requestId: input.requestId,
-              label,
+              event: streamEvent,
             }),
         );
       } finally {

@@ -67,5 +67,8 @@
     "dmg": {
       "title": "AeoKit Agent"
     }
+  },
+  "allowScripts": {
+    "electron@44.0.0": true
   }
 }

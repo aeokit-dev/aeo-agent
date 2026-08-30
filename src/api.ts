@@ -5,6 +5,8 @@ import type {
   Project,
   SendResponse,
 } from "./types";
+import type { AgentMode } from "../shared/agent-experience";
+import type { AgentStreamEvent } from "../shared/streaming";
 
 const fallbackBase = "/api";
 
@@ -111,12 +113,13 @@ export class AeoKitApi {
     context: string,
     history: Array<Pick<ChatMessage, "role" | "content">>,
     prompt: string,
-    onProgress?: (label: string) => void,
+    mode: AgentMode,
+    onEvent?: (event: AgentStreamEvent) => void,
   ) => {
     if (window.aeokitDesktop) {
       const requestId = crypto.randomUUID();
       const unsubscribe = window.aeokitDesktop.onProgress((event) => {
-        if (event.requestId === requestId) onProgress?.(event.label);
+        if (event.requestId === requestId) onEvent?.(event.event);
       });
       try {
         const result = await window.aeokitDesktop.prompt({
@@ -126,6 +129,7 @@ export class AeoKitApi {
           context,
           history,
           prompt,
+          mode,
         });
         return result.answer;
       } finally {
@@ -141,13 +145,48 @@ export class AeoKitApi {
         project: context,
         history,
         prompt,
+        mode,
       }),
     });
-    const data = (await response.json()) as { answer?: string; error?: string };
-    if (!response.ok || !data.answer) {
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
       throw new Error(data.error || "Local ACP agent failed");
     }
-    return data.answer;
+    if (
+      response.headers
+        ?.get("content-type")
+        ?.includes("application/x-ndjson") !== true
+    ) {
+      const data = (await response.json()) as {
+        answer?: string;
+        error?: string;
+      };
+      if (!data.answer) throw new Error(data.error || "Local ACP agent failed");
+      return data.answer;
+    }
+    if (!response.body) throw new Error("Local ACP stream was unavailable");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let answer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line) as AgentStreamEvent;
+        if (event.type === "error") throw new Error(event.message);
+        if (event.type === "text_delta") answer += event.delta;
+        if (event.type === "done") answer = event.answer;
+        onEvent?.(event);
+      }
+      if (done) break;
+    }
+    return answer;
   };
   agentContext = async (
     projectId: string,

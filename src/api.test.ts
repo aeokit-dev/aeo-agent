@@ -50,12 +50,54 @@ describe("AeoKitApi", () => {
       token: "",
     });
     await expect(
-      api.acpSend("codex", "gpt-5.6-sol", "Acme", [], "What changed?"),
+      api.acpSend(
+        "codex",
+        "gpt-5.6-sol",
+        "Acme",
+        [],
+        "What changed?",
+        "product_analytics",
+      ),
     ).resolves.toBe("Grounded answer");
     expect(fetchMock).toHaveBeenCalledWith(
       "/__acp/chat",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("streams local ACP text deltas before completion", async () => {
+    const encoder = new TextEncoder();
+    const chunks = [
+      '{"type":"activity","label":"Analyzing"}\n',
+      '{"type":"text_delta","delta":"Hello "}\n',
+      '{"type":"text_delta","delta":"world"}\n',
+      '{"type":"done","answer":"Hello world","stopReason":"end_turn"}\n',
+    ];
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/x-ndjson" }),
+      body: new ReadableStream({
+        start(controller) {
+          chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
+          controller.close();
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events: string[] = [];
+    const api = new AeoKitApi({ apiUrl: "/api", token: "" });
+    await expect(
+      api.acpSend(
+        "codex",
+        "gpt-5.6-sol",
+        "Acme",
+        [],
+        "Hello",
+        "product_analytics",
+        (event) => events.push(event.type),
+      ),
+    ).resolves.toBe("Hello world");
+    expect(events).toEqual(["activity", "text_delta", "text_delta", "done"]);
   });
 
   it("recognizes requests that need evidence from every project", () => {

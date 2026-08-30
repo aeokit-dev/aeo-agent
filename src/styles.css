@@ -708,6 +708,328 @@ button {
 .activity-trace-list svg {
   color: #69a571;
 }
+.live-activity {
+  max-width: 620px;
+  margin: 0 0 7px;
+  color: #777872;
+  font-size: 10px;
+}
+.live-activity > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  padding: 3px 1px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.live-activity > button:hover {
+  background: #f1f1ee;
+}
+.live-activity > button > svg:first-child {
+  color: #5263d8;
+}
+.live-activity > button > svg:last-child {
+  transition: transform 0.15s ease;
+}
+.live-activity.open > button > svg:last-child {
+  transform: rotate(90deg);
+}
+.live-activity > button span {
+  color: #565751;
+  font-weight: 600;
+}
+.live-activity > button small {
+  color: #9a9b95;
+  font-size: 9px;
+}
+.live-activity-details {
+  display: grid;
+  gap: 4px;
+  margin: 1px 0 5px 6px;
+  padding: 4px 0 4px 12px;
+  border-left: 1px solid #dfdfdb;
+  color: #989993;
+}
+.live-activity-details div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.live-activity-details svg {
+  color: #72a978;
+}
+.composer-controls,
+.mode-picker {
+  display: flex;
+  align-items: center;
+}
+.composer-controls {
+  gap: 8px;
+  min-width: 0;
+}
+.mode-picker {
+  position: relative;
+  gap: 5px;
+  color: #686963;
+}
+.mode-picker select {
+  appearance: none;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  background: transparent;
+  padding: 0 14px 0 0;
+  font-size: 10px;
+  font-weight: 600;
+}
+.mode-picker > svg:last-child {
+  position: absolute;
+  right: 0;
+  pointer-events: none;
+}
+.tool-call {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 620px;
+  margin: 8px 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #64655f;
+  background: #fafaf9;
+  font-size: 10px;
+}
+.tool-call.completed > svg {
+  color: #69a571;
+}
+.tool-call span {
+  display: grid;
+  gap: 2px;
+}
+.tool-call small {
+  color: var(--muted);
+}
+.ui-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+.ui-actions button {
+  border: 1px solid #cfd3f6;
+  border-radius: 7px;
+  background: #f5f6ff;
+  color: #4655bb;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+}
+.approval-card {
+  max-width: 620px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #e4c77c;
+  border-radius: 9px;
+  background: #fffaf0;
+  font-size: 10px;
+}
+.approval-card.high {
+  border-color: #e1a39f;
+  background: #fff6f5;
+}
+.approval-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.approval-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.approval-actions button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.approval-actions button.approve {
+  border-color: #5263d8;
+  background: #5263d8;
+  color: #fff;
+}
+.approval-status {
+  display: inline-block;
+  margin-top: 9px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.approval-status.approved {
+  color: #4e8a58;
+}
+.approval-status.rejected {
+  color: #a55a54;
+}
+.visualization-card {
+  max-width: 680px;
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(26, 27, 23, 0.04);
+}
+.visualization-card > header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border-bottom: 1px solid #eeeeeb;
+}
+.visualization-card > header > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+}
+.visualization-card > header strong {
+  font-size: 11px;
+}
+.visualization-card > header small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.visualization-card > header button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+.visualization-card > header button svg {
+  transition: transform 0.15s ease;
+}
+.visualization-card > header button svg.expanded {
+  transform: rotate(90deg);
+}
+.visualization-icon {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  color: #5263d8;
+  background: #f0f1ff;
+}
+.visualization-body {
+  padding: 14px;
+}
+.metric-value {
+  padding: 18px 4px;
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.artifact-table-wrap {
+  overflow-x: auto;
+}
+.artifact-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.artifact-table-wrap th,
+.artifact-table-wrap td {
+  padding: 7px 8px;
+  border-bottom: 1px solid #eeeeeb;
+  text-align: right;
+}
+.artifact-table-wrap th:first-child,
+.artifact-table-wrap td:first-child {
+  text-align: left;
+}
+.bar-chart {
+  display: grid;
+  gap: 10px;
+}
+.bar-group {
+  display: grid;
+  grid-template-columns: minmax(70px, 120px) 1fr;
+  gap: 9px;
+  align-items: center;
+}
+.bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #666761;
+  font-size: 9px;
+}
+.bar-series {
+  display: grid;
+  gap: 3px;
+}
+.bar-row {
+  display: flex;
+  align-items: center;
+  height: 13px;
+  gap: 6px;
+}
+.bar-row i {
+  display: block;
+  height: 8px;
+  min-width: 2px;
+  border-radius: 2px;
+}
+.bar-row em {
+  color: #5c5d57;
+  font-size: 8px;
+  font-style: normal;
+}
+.line-chart svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.line-chart line {
+  stroke: #ecece8;
+  stroke-width: 1;
+}
+.line-chart polyline {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line-chart text {
+  fill: #858680;
+  font-size: 8px;
+  text-anchor: middle;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  color: #6e6f69;
+  font-size: 9px;
+}
+.chart-legend span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chart-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
 .message-actions {
   display: flex;
   gap: 2px;

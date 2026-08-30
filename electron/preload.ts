@@ -9,11 +9,13 @@ const api: AgentDesktopApi = {
   onProgress: (listener) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      value: { requestId: string; label: string },
+      value: Parameters<Parameters<AgentDesktopApi["onProgress"]>[0]>[0],
     ) => listener(value);
     ipcRenderer.on("agents:progress", handler);
     return () => ipcRenderer.removeListener("agents:progress", handler);
   },
+  loadSettings: () => ipcRenderer.invoke("settings:load"),
+  saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   runtimeRequest: (input) => ipcRenderer.invoke("runtime:request", input),
 };
 

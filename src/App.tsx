@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   ArrowUp,
+  BarChart3,
   Check,
   ChevronRight,
   ChevronDown,
@@ -34,7 +35,16 @@ import {
   type ClientSettings,
 } from "./api";
 import { capabilities, defaultPrompts } from "./prompts";
-import type { ChatBackend, ChatMessage, ChatSession, Project } from "./types";
+import type {
+  ChatBackend,
+  ChatMessage,
+  ChatSession,
+  Project,
+  VisualizationArtifact,
+} from "./types";
+import { agentModes, type AgentMode } from "../shared/agent-experience";
+import { parseContentBlocks } from "./artifacts";
+import type { AgentStreamEvent } from "../shared/streaming";
 
 const selectedProjectKey = "aeokit-agent-project";
 
@@ -62,6 +72,7 @@ export function App() {
   const [backends, setBackends] = useState<ChatBackend[]>([]);
   const [backend, setBackend] = useState<ChatBackend["id"] | undefined>();
   const [model, setModel] = useState("");
+  const [mode, setMode] = useState<AgentMode>("product_analytics");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [activity, setActivity] = useState<string[]>([]);
@@ -69,6 +80,13 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!window.aeokitDesktop) return;
+    void window.aeokitDesktop.loadSettings().then((saved) => {
+      if (saved) setSettings(saved);
+    });
+  }, []);
 
   const project = projects.find((item) => item.id === projectId);
   const activeSession = sessions.find((item) => item.id === sessionId);
@@ -204,6 +222,68 @@ export function App() {
           prompt,
           addActivity,
         );
+        const assistantId = crypto.randomUUID();
+        const assistantModel = `${backends.find((item) => item.id === backend)?.label || backend} · ${model}`;
+        const streamingAssistant: ChatMessage = {
+          id: assistantId,
+          sessionId: targetId,
+          role: "assistant",
+          content: "",
+          citations: [],
+          model: assistantModel,
+          createdAt: new Date().toISOString(),
+          activity: turnActivity,
+          toolCalls: [],
+          streaming: true,
+        };
+        setMessages((items) => [...items, streamingAssistant]);
+        const handleStreamEvent = (event: AgentStreamEvent) => {
+          if (event.type === "activity") {
+            addActivity(event.label);
+            setMessages((items) =>
+              items.map((item) =>
+                item.id === assistantId
+                  ? { ...item, activity: turnActivity }
+                  : item,
+              ),
+            );
+            return;
+          }
+          if (event.type === "error") return;
+          setMessages((items) =>
+            items.map((item) => {
+              if (item.id !== assistantId) return item;
+              if (event.type === "text_delta")
+                return { ...item, content: item.content + event.delta };
+              if (event.type === "done")
+                return {
+                  ...item,
+                  content: event.answer,
+                  activity: turnActivity,
+                  streaming: false,
+                };
+              if (event.type === "tool_call") {
+                const tool = {
+                  id: event.id,
+                  name: event.name,
+                  label: event.label,
+                  status: event.status,
+                  ...(event.summary ? { summary: event.summary } : {}),
+                };
+                return {
+                  ...item,
+                  toolCalls: [
+                    ...(item.toolCalls || []).filter(
+                      (value) => value.id !== event.id,
+                    ),
+                    tool,
+                  ],
+                };
+              }
+              return item;
+            }),
+          );
+        };
         const answer = await api.acpSend(
           backend,
           model,
@@ -213,19 +293,21 @@ export function App() {
             content: value,
           })),
           prompt,
-          addActivity,
+          mode,
+          handleStreamEvent,
         );
-        const assistant: ChatMessage = {
-          id: crypto.randomUUID(),
-          sessionId: targetId,
-          role: "assistant",
-          content: answer,
-          citations: [],
-          model: `${backends.find((item) => item.id === backend)?.label || backend} · ${model}`,
-          createdAt: new Date().toISOString(),
-          activity: turnActivity,
-        };
-        setMessages((items) => [...items, assistant]);
+        setMessages((items) =>
+          items.map((item) =>
+            item.id === assistantId
+              ? {
+                  ...item,
+                  content: answer,
+                  activity: turnActivity,
+                  streaming: false,
+                }
+              : item,
+          ),
+        );
         return;
       }
       const response = await api.send(targetId, prompt, backend);
@@ -234,6 +316,15 @@ export function App() {
         response.userMessage,
         response.assistantMessage,
       ]);
+      if (response.uiActions?.length) {
+        setMessages((items) =>
+          items.map((item) =>
+            item.id === response.assistantMessage.id
+              ? { ...item, uiActions: response.uiActions }
+              : item,
+          ),
+        );
+      }
       setSessions((items) => [
         response.session,
         ...items.filter((item) => item.id !== response.session.id),
@@ -261,6 +352,7 @@ export function App() {
   function saveSettings(next: ClientSettings) {
     const normalized = { ...next, apiUrl: normalizeApiUrl(next.apiUrl) };
     localStorage.setItem("aeokit-agent-settings", JSON.stringify(normalized));
+    void window.aeokitDesktop?.saveSettings(normalized);
     setSettings(normalized);
     setSettingsOpen(false);
   }
@@ -271,6 +363,7 @@ export function App() {
     setHistoryOpen(false);
   };
   const showWelcome = !sessionId && messages.length === 0;
+  const hasStreamingMessage = messages.some((message) => message.streaming);
 
   return (
     <div className={`app-shell ${isMacDesktop ? "macos-desktop" : ""}`}>
@@ -392,6 +485,8 @@ export function App() {
               model={model}
               onBackendChange={selectBackend}
               onModelChange={setModel}
+              mode={mode}
+              onModeChange={setMode}
             />
           ) : (
             <div className="thread-wrap">
@@ -414,7 +509,9 @@ export function App() {
                 {messages.map((message) => (
                   <Message key={message.id} message={message} />
                 ))}
-                {sending && <Thinking activity={activity} />}
+                {sending && !hasStreamingMessage && (
+                  <Thinking activity={activity} />
+                )}
                 <div ref={bottomRef} />
               </div>
               <Composer
@@ -425,6 +522,8 @@ export function App() {
                 backends={backends}
                 onBackendChange={selectBackend}
                 onModelChange={setModel}
+                mode={mode}
+                onModeChange={setMode}
               />
             </div>
           )}
@@ -457,6 +556,8 @@ function Welcome({
   model,
   onBackendChange,
   onModelChange,
+  mode,
+  onModeChange,
 }: {
   project?: Project;
   onSend: (value: string) => void;
@@ -466,6 +567,8 @@ function Welcome({
   model: string;
   onBackendChange: (value: ChatBackend["id"]) => void;
   onModelChange: (value: string) => void;
+  mode: AgentMode;
+  onModeChange: (value: AgentMode) => void;
 }) {
   const [active, setActive] = useState(capabilities[0].key);
   const capability = capabilities.find((item) => item.key === active)!;
@@ -489,6 +592,8 @@ function Welcome({
         backends={backends}
         onBackendChange={onBackendChange}
         onModelChange={onModelChange}
+        mode={mode}
+        onModeChange={onModeChange}
       />
       <div className="try-label">Try AeoKit Agent for…</div>
       <div className="capability-tabs">
@@ -534,6 +639,8 @@ function Composer({
   backends = [],
   onBackendChange,
   onModelChange,
+  mode = "product_analytics",
+  onModeChange,
 }: {
   onSend: (value: string) => void;
   sending?: boolean;
@@ -545,6 +652,8 @@ function Composer({
   backends?: ChatBackend[];
   onBackendChange?: (value: ChatBackend["id"]) => void;
   onModelChange?: (value: string) => void;
+  mode?: AgentMode;
+  onModeChange?: (value: AgentMode) => void;
 }) {
   const [value, setValue] = useState("");
   const submit = (event?: FormEvent) => {
@@ -575,18 +684,39 @@ function Composer({
         disabled={disabled}
       />
       <div className="composer-bottom">
-        {backend && onBackendChange && onModelChange ? (
-          <BackendPicker
-            backends={backends}
-            value={backend.id}
-            onChange={onBackendChange}
-            model={model || backend.model}
-            onModelChange={onModelChange}
-            compact
-          />
-        ) : (
-          <span>Project data + web research</span>
-        )}
+        <div className="composer-controls">
+          {onModeChange && (
+            <label className="mode-picker" title="Agent mode">
+              <Sparkles size={12} />
+              <select
+                value={mode}
+                onChange={(event) =>
+                  onModeChange(event.target.value as AgentMode)
+                }
+                aria-label="Agent mode"
+              >
+                {agentModes.map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={11} />
+            </label>
+          )}
+          {backend && onBackendChange && onModelChange ? (
+            <BackendPicker
+              backends={backends}
+              value={backend.id}
+              onChange={onBackendChange}
+              model={model || backend.model}
+              onModelChange={onModelChange}
+              compact
+            />
+          ) : (
+            <span>Project data + web research</span>
+          )}
+        </div>
         <button
           type="submit"
           disabled={!value.trim() || sending || disabled}
@@ -610,18 +740,70 @@ function Message({ message }: { message: ChatMessage }) {
         <div>{message.content}</div>
       </div>
     );
+  const contentBlocks = parseContentBlocks(message.content);
   return (
     <article className="message assistant-message">
       <div className="assistant-avatar">
         <Sparkles size={14} />
       </div>
       <div className="assistant-body">
-        {!!message.activity?.length && (
-          <ActivityTrace steps={message.activity} />
+        {!!message.activity?.length &&
+          (message.streaming ? (
+            <LiveActivity steps={message.activity} />
+          ) : (
+            <ActivityTrace steps={message.activity} />
+          ))}
+        {contentBlocks.map((block, index) =>
+          block.type === "markdown" ? (
+            <ReactMarkdown
+              key={`markdown-${index}`}
+              remarkPlugins={[remarkGfm]}
+            >
+              {block.content}
+            </ReactMarkdown>
+          ) : (
+            <VisualizationCard
+              artifact={block.artifact}
+              key={`artifact-${index}`}
+            />
+          ),
         )}
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {message.content}
-        </ReactMarkdown>
+        {message.toolCalls?.map((tool) => (
+          <div className={`tool-call ${tool.status}`} key={tool.id}>
+            {tool.status === "completed" ? (
+              <Check size={13} />
+            ) : (
+              <LoaderCircle className="spin" size={13} />
+            )}
+            <span>
+              <strong>{tool.label}</strong>
+              {tool.summary && <small>{tool.summary}</small>}
+            </span>
+          </div>
+        ))}
+        {(message.artifacts || []).map((artifact, index) => (
+          <VisualizationCard
+            artifact={artifact}
+            key={`${message.id}-artifact-${index}`}
+          />
+        ))}
+        {!!message.uiActions?.length && (
+          <div className="ui-actions">
+            {message.uiActions.map((action, index) => (
+              <button
+                key={`${action.type}-${index}`}
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent("aeokit:ui-action", { detail: action }),
+                  );
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {message.approval && <ApprovalCard approval={message.approval} />}
         {message.citations?.length > 0 && (
           <div className="sources">
             <span>Sources</span>
@@ -641,14 +823,211 @@ function Message({ message }: { message: ChatMessage }) {
             </div>
           </div>
         )}
-        {message.model && (
+        {message.model && !message.streaming && (
           <div className="model-label">
             Answered by {message.model.replace(/:online$/, "")}
           </div>
         )}
-        <MessageActions content={message.content} />
+        {!message.streaming && <MessageActions content={message.content} />}
       </div>
     </article>
+  );
+}
+
+function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const xKey = artifact.xKey || "label";
+  const numericValues = artifact.data.flatMap((row) =>
+    artifact.series.map((series) => Number(row[series.key]) || 0),
+  );
+  const maximum = Math.max(1, ...numericValues);
+  return (
+    <section className="visualization-card">
+      <header>
+        <span className="visualization-icon">
+          <BarChart3 size={15} />
+        </span>
+        <span>
+          <strong>{artifact.title}</strong>
+          {artifact.description && <small>{artifact.description}</small>}
+        </span>
+        <button
+          onClick={() => setCollapsed((value) => !value)}
+          aria-label={collapsed ? "Expand chart" : "Collapse chart"}
+        >
+          <ChevronRight className={collapsed ? "" : "expanded"} size={15} />
+        </button>
+      </header>
+      {!collapsed && (
+        <div className="visualization-body">
+          {artifact.type === "metric" ? (
+            <div className="metric-value">
+              {String(artifact.data[0]?.[artifact.series[0]?.key] ?? "–")}
+              {artifact.unit || ""}
+            </div>
+          ) : artifact.type === "table" ? (
+            <div className="artifact-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{xKey}</th>
+                    {artifact.series.map((series) => (
+                      <th key={series.key}>{series.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {artifact.data.map((row, index) => (
+                    <tr key={index}>
+                      <td>{String(row[xKey] ?? "")}</td>
+                      {artifact.series.map((series) => (
+                        <td key={series.key}>
+                          {String(row[series.key] ?? "–")}
+                          {artifact.unit || ""}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : artifact.type === "bar" ? (
+            <div className="bar-chart">
+              {artifact.data.map((row, index) => (
+                <div className="bar-group" key={index}>
+                  <span className="bar-label">{String(row[xKey] ?? "")}</span>
+                  <div className="bar-series">
+                    {artifact.series.map((series) => {
+                      const value = Number(row[series.key]) || 0;
+                      return (
+                        <div
+                          className="bar-row"
+                          key={series.key}
+                          title={`${series.label}: ${value}${artifact.unit || ""}`}
+                        >
+                          <i
+                            style={{
+                              width: `${Math.max(2, (value / maximum) * 100)}%`,
+                              background: series.color || "#5263d8",
+                            }}
+                          />
+                          <em>
+                            {value}
+                            {artifact.unit || ""}
+                          </em>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <LineChart artifact={artifact} maximum={maximum} />
+          )}
+          {artifact.series.length > 1 && (
+            <div className="chart-legend">
+              {artifact.series.map((series) => (
+                <span key={series.key}>
+                  <i style={{ background: series.color || "#5263d8" }} />
+                  {series.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ApprovalCard({
+  approval,
+}: {
+  approval: NonNullable<ChatMessage["approval"]>;
+}) {
+  const [status, setStatus] = useState(approval.status);
+  return (
+    <section className={`approval-card ${approval.risk}`}>
+      <div>
+        <strong>{approval.title}</strong>
+        <p>{approval.description}</p>
+      </div>
+      {status === "pending" ? (
+        <div className="approval-actions">
+          <button onClick={() => setStatus("rejected")}>Reject</button>
+          <button className="approve" onClick={() => setStatus("approved")}>
+            Approve
+          </button>
+        </div>
+      ) : (
+        <span className={`approval-status ${status}`}>
+          {status === "approved" ? "Approved" : "Rejected"}
+        </span>
+      )}
+    </section>
+  );
+}
+
+function LineChart({
+  artifact,
+  maximum,
+}: {
+  artifact: VisualizationArtifact;
+  maximum: number;
+}) {
+  const width = 640;
+  const height = 220;
+  const padding = 24;
+  const xKey = artifact.xKey || "label";
+  const denominator = Math.max(1, artifact.data.length - 1);
+  return (
+    <div className="line-chart">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={artifact.title}
+      >
+        {[0, 0.5, 1].map((point) => (
+          <line
+            key={point}
+            x1={padding}
+            x2={width - padding}
+            y1={padding + point * (height - padding * 2)}
+            y2={padding + point * (height - padding * 2)}
+          />
+        ))}
+        {artifact.series.map((series) => {
+          const points = artifact.data
+            .map((row, index) => {
+              const x = padding + (index / denominator) * (width - padding * 2);
+              const y =
+                height -
+                padding -
+                ((Number(row[series.key]) || 0) / maximum) *
+                  (height - padding * 2);
+              return `${x},${y}`;
+            })
+            .join(" ");
+          return (
+            <polyline
+              key={series.key}
+              points={points}
+              style={{ stroke: series.color || "#5263d8" }}
+            />
+          );
+        })}
+        {artifact.data.map((row, index) => (
+          <text
+            key={index}
+            x={padding + (index / denominator) * (width - padding * 2)}
+            y={height - 5}
+          >
+            {String(row[xKey] ?? "")}
+          </text>
+        ))}
+      </svg>
+    </div>
   );
 }
 
@@ -666,6 +1045,31 @@ function ActivityTrace({ steps }: { steps: string[] }) {
           {steps.map((step, index) => (
             <div key={`${step}-${index}`}>
               <Check size={11} />
+              <span>{step}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveActivity({ steps }: { steps: string[] }) {
+  const [open, setOpen] = useState(false);
+  const current = steps.at(-1) || "Thinking";
+  return (
+    <div className={`live-activity ${open ? "open" : ""}`}>
+      <button onClick={() => setOpen((value) => !value)}>
+        <LoaderCircle className="spin" size={13} />
+        <span>{current}</span>
+        {steps.length > 1 && <small>{steps.length} activities</small>}
+        <ChevronRight size={11} />
+      </button>
+      {open && (
+        <div className="live-activity-details">
+          {steps.slice(0, -1).map((step, index) => (
+            <div key={`${step}-${index}`}>
+              <Check size={10} />
               <span>{step}</span>
             </div>
           ))}
@@ -718,24 +1122,8 @@ function Thinking({ activity }: { activity: string[] }) {
       <div className="assistant-avatar">
         <Sparkles size={14} />
       </div>
-      <div className="activity-panel" aria-live="polite">
-        <div className="activity-title">
-          <span className="activity-pulse" /> Working on it
-        </div>
-        <div className="activity-steps">
-          {steps.map((step, index) => {
-            const active = index === steps.length - 1;
-            return (
-              <div
-                className={active ? "active" : "complete"}
-                key={`${step}-${index}`}
-              >
-                <span>{active ? "" : "✓"}</span>
-                <em>{step}</em>
-              </div>
-            );
-          })}
-        </div>
+      <div className="assistant-body" aria-live="polite">
+        <LiveActivity steps={steps} />
       </div>
     </div>
   );
