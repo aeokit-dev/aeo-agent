@@ -29,6 +29,12 @@ jobs:
           NODE_OPTIONS: --localstorage-file=${{ runner.temp }}/aeokit-agent-test-localstorage
       - run: npm run typecheck
       - run: npm run format:check
+      - name: Ensure GitHub release exists
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "AeoKit Agent $GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare App Store Connect API key
         if: env.HAS_SIGNING_CREDENTIALS == 'true'
         run: echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
