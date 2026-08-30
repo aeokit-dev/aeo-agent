@@ -1,0 +1,20 @@
+import { contextBridge, ipcRenderer } from "electron";
+import type { AgentDesktopApi } from "../shared/electron-api";
+
+const api: AgentDesktopApi = {
+  platform: process.platform,
+  listAgents: () => ipcRenderer.invoke("agents:list"),
+  prompt: (input) => ipcRenderer.invoke("agents:prompt", input),
+  cancel: (requestId) => ipcRenderer.invoke("agents:cancel", requestId),
+  onProgress: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      value: { requestId: string; label: string },
+    ) => listener(value);
+    ipcRenderer.on("agents:progress", handler);
+    return () => ipcRenderer.removeListener("agents:progress", handler);
+  },
+  runtimeRequest: (input) => ipcRenderer.invoke("runtime:request", input),
+};
+
+contextBridge.exposeInMainWorld("aeokitDesktop", api);

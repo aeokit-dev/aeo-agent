@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">aeokit app icon</title><desc id="desc">A white modular K with an open joint on cobalt.</desc>
+  <defs><mask id="open-joint" maskUnits="userSpaceOnUse" x="24" y="24" width="80" height="80"><rect x="24" y="24" width="80" height="80" fill="white"/><circle cx="51.5" cy="64" r="6.25" fill="black"/></mask></defs>
+  <rect width="128" height="128" rx="30" fill="#5263D8"/>
+  <g mask="url(#open-joint)" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-width="12.5"><path d="M42.75 34V94"/><path d="M54 60.9L82.75 35.25"/><path d="M54 67.1L82.75 92.75"/></g>
+</svg>

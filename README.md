@@ -1,127 +1,57 @@
-# AEO Agent
+# AeoKit Agent
 
-A local-first agent harness by AEOkit that investigates why a brand is absent from AI answers, proposes a small website change, applies it only with approval, and preserves the evidence needed to verify the result.
+A standalone agent client for the [AeoKit](https://github.com/aeokit-dev/aeokit) API runtime. It follows the interaction model of PostHog AI: a focused new-chat screen, capability-based starter prompts, persistent chat history, a compact sticky composer, grounded answers, and visible sources.
 
-It runs through an existing authenticated Codex or Claude Code installation. No separate model API key is required.
+The visual identity uses AeoKit's official modular-K icon, cobalt palette, Inter typography, and neutral surface system from [aeokit.dev](https://aeokit.dev/).
 
-> Early development. AEO Agent can verify technical properties and run directional simulations. It cannot promise rankings, indexing, mentions, citations, or ingestion by a public answer engine.
-
-## The job
-
-```console
-$ npx aeo-agent@latest init https://example.com \
-    --brand "Example" \
-    --category "API testing" \
-    --audience "backend teams" \
-    --competitors "Competitor A,Competitor B"
-
-$ npx aeo-agent@latest improve \
-    --query "What are the best open-source API testing tools?" \
-    --provider codex \
-    --observer claude
-```
-
-The first command creates `.aeokit/config.json`. The second command inspects the repository and deployed page, records a blind baseline through [AEO Preview](https://github.com/aeokit-dev/aeo-preview), and asks a fresh operator agent for an evidence-backed proposal.
-
-Review the proposal, then explicitly approve edits:
-
-```bash
-aeo-agent apply latest --provider codex
-aeo-agent verify latest --provider claude
-```
-
-`apply` refuses a dirty worktree by default. It never commits, pushes, publishes, or deploys.
-
-## Why this is an agent, not another score
-
-A visibility tracker ends with a report. AEO Agent continues from observation to diagnosis, a reviewable patch, and verification:
-
-```text
-buyer objective
-      │
-      ▼
-deterministic audit ──► blind baseline (AEO Preview)
-      │                         │
-      └──────────┬──────────────┘
-                 ▼
-          operator hypothesis
-                 │
-          human approval gate
-                 │
-                 ▼
-             site patch
-                 │
-        ┌────────┴─────────┐
-        ▼                  ▼
-deterministic checks   blind verifier
-        │                  │
-        └────────┬─────────┘
-                 ▼
- production observation after deployment
-```
-
-The optimizing agent never grades its own work. Fresh observer processes receive the unchanged buyer question without the operator's reasoning.
-
-## Evidence levels
-
-| Level | What it establishes | What it does not establish |
-|---|---|---|
-| Deterministic verification | Crawlability, extractability, metadata, schema, evidence links, and internal consistency | Public answer-engine visibility |
-| Directional grounded simulation | A fresh agent can use the supplied post-change evidence | Indexing or ranking on a consumer surface |
-| Production observation | A named public consumer surface returned a mention or citation for the unchanged prompt at a point in time | Causality or a durable ranking |
-
-Artifacts live under `.aeokit/sessions/<session-id>/`: the before/after audits, raw baseline observation, proposal, apply report, patch, and blind verification. Current Codex and Claude observations are labeled directional agent simulations; consumer-surface collectors remain a separate future adapter.
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `init` | Create the local brand and site profile |
-| `audit` | Run deterministic local and deployed checks |
-| `observe` | Run one buyer prompt through AEO Preview |
-| `plan` | Produce an evidence-backed proposal without editing |
-| `apply` | Apply an approved proposal in a clean worktree |
-| `improve` | Run `plan`, optionally followed by `apply --apply` |
-| `verify` | Run post-change checks and optional fresh observers |
-| `tools` | List the typed AEO tools exposed by the harness |
-| `skills` | List optional skills installed for AEO Agent |
-| `doctor` | Check the local runtime and provider CLIs |
-
-Use `--observer codex`, `--observer claude`, or `--observer fixture` for a reproducible baseline. Start with one sample; increase `--samples` only after inspecting the raw evidence.
-
-## Skills
-
-AEO Agent reads optional Agent Skills from:
-
-- `.aeokit/skills/` for a project
-- `~/.aeokit/skills/` for a user
-
-The companion [aeo-skills](https://github.com/aeokit-dev/aeo-skills) repository contains the same focused workflows for AEO Agent, Codex, and Claude Code:
-
-```bash
-npx aeo-skills@latest add aeo-improve --to agent --scope project
-```
-
-## Architecture
-
-The harness deliberately uses provider CLIs as isolated subprocesses. Codex runs ephemerally; Claude runs without session persistence. That preserves subscription-backed authentication while giving AEOkit a provider-neutral lifecycle, evidence store, approval boundary, and tool contract.
-
-AEO Preview owns repeatable prompt measurement. AEO Agent owns investigation and execution. AEOkit remains the umbrella tool ecosystem; this repository is its opinionated agentic layer, not a replacement.
-
-## Development
-
-Requires Node.js 22.19 or newer.
+## Run locally
 
 ```bash
 npm install
-npm run check
-node bin/aeo-agent.js doctor
+cp .env.example .env.local
+npm run dev
 ```
 
-Tests use deterministic fixtures and do not consume Codex or Claude quota.
+To run the native desktop application:
 
-The GitHub Actions definition is checked in as `.github/ci.yml.example`; move it to `.github/workflows/ci.yml` when the publishing token has GitHub's `workflow` scope.
+```bash
+npm run dev:desktop
+```
 
-## License
+Create an unpacked application or macOS installer with:
 
-MIT
+```bash
+npm run package:dir
+npm run package:mac
+```
+
+By default the development server proxies `/api` to AeoKit at `http://127.0.0.1:3000`, avoiding browser CORS requirements. Change `VITE_AEOKIT_API_URL`, or use the settings button in the app. Hosted Cloudflare runtimes also require a valid bearer token.
+
+The runtime needs an AI Chat backend configured (`OPENROUTER_API_KEY` or `AI_CHAT_BASE_URL`). This client does not hold model-provider credentials; it only talks to AeoKit.
+
+## Local agents with ACP
+
+Development mode also exposes Codex and Claude Code through the same Agent Client Protocol architecture used by Buzz. The official ACP SDK talks over stdio to:
+
+- `@agentclientprotocol/codex-acp`
+- `@agentclientprotocol/claude-agent-acp`
+
+The bridge is localhost-only, rejects non-local browser origins, denies file access and permission requests, applies a five-minute turn timeout, and terminates the adapter when the browser disconnects. Choose Codex or Claude Code from the model picker in a chat. Their adapter authentication must already be configured locally.
+
+## API contract
+
+The client uses the existing AeoKit routes:
+
+- `GET /projects`
+- `GET /ai-chat/backends`
+- `GET|POST /projects/:projectId/ai-chat/sessions`
+- `GET|POST /ai-chat/sessions/:sessionId/messages`
+- `DELETE /ai-chat/sessions/:sessionId`
+
+## Checks
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```

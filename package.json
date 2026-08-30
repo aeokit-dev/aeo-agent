@@ -1,46 +1,71 @@
 {
-  "name": "aeo-agent",
+  "name": "aeokit-agent",
+  "private": true,
   "version": "0.1.0",
-  "description": "A local-first agent harness that investigates and improves answer-engine visibility.",
   "type": "module",
-  "bin": {
-    "aeo-agent": "bin/aeo-agent.js"
-  },
-  "files": [
-    "bin",
-    "src",
-    "README.md",
-    "LICENSE"
-  ],
+  "main": "out/main/index.js",
   "scripts": {
-    "test": "node --test",
-    "check": "node --check bin/aeo-agent.js && node --check src/cli.js && node --test",
-    "prepublishOnly": "npm run check"
-  },
-  "engines": {
-    "node": ">=22.19"
-  },
-  "keywords": [
-    "aeo",
-    "geo",
-    "agent",
-    "codex",
-    "claude",
-    "ai-visibility"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/aeokit-dev/aeo-agent.git"
-  },
-  "homepage": "https://github.com/aeokit-dev/aeo-agent#readme",
-  "bugs": {
-    "url": "https://github.com/aeokit-dev/aeo-agent/issues"
-  },
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
+    "dev": "vite",
+    "dev:desktop": "electron-vite dev",
+    "build": "tsc -b && vite build",
+    "build:desktop": "tsc -b && electron-vite build",
+    "package:dir": "npm run build:desktop && electron-builder --dir",
+    "package:mac": "npm run build:desktop && electron-builder --mac",
+    "test": "vitest run",
+    "typecheck": "tsc -b",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
-    "aeo-preview": "^0.1.0"
+    "@agentclientprotocol/claude-agent-acp": "^0.70.0",
+    "@agentclientprotocol/codex-acp": "^1.7.0",
+    "@agentclientprotocol/sdk": "^1.4.0",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-markdown": "latest",
+    "remark-gfm": "latest"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "^26.4.0",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "latest",
+    "prettier": "latest",
+    "typescript": "latest",
+    "vite": "^7.3.6",
+    "vitest": "latest"
+  },
+  "build": {
+    "appId": "dev.aeokit.agent",
+    "productName": "AeoKit Agent",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@agentclientprotocol/**/*",
+      "node_modules/@openai/**/*",
+      "node_modules/@anthropic-ai/**/*"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.business",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "title": "AeoKit Agent"
+    }
   }
 }
