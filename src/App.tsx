@@ -21,6 +21,7 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Square,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -80,6 +81,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const activeTurnRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!window.aeokitDesktop) return;
@@ -179,6 +181,8 @@ export function App() {
     setError("");
     setSending(true);
     setActivity([]);
+    const turnController = new AbortController();
+    activeTurnRef.current = turnController;
     try {
       const isAcp = backend === "codex" || backend === "claude";
       let targetId = sessionId;
@@ -295,6 +299,7 @@ export function App() {
           prompt,
           mode,
           handleStreamEvent,
+          turnController.signal,
         );
         setMessages((items) =>
           items.map((item) =>
@@ -330,15 +335,27 @@ export function App() {
         ...items.filter((item) => item.id !== response.session.id),
       ]);
     } catch (reason) {
+      if (turnController.signal.aborted) {
+        setMessages((items) =>
+          items.map((item) =>
+            item.streaming ? { ...item, streaming: false } : item,
+          ),
+        );
+        return;
+      }
       setMessages((items) =>
         items.filter((item) => !item.id.startsWith("local-")),
       );
       setError(reason instanceof Error ? reason.message : "The request failed");
     } finally {
+      if (activeTurnRef.current === turnController)
+        activeTurnRef.current = null;
       setSending(false);
       setActivity([]);
     }
   }
+
+  const stopGenerating = () => activeTurnRef.current?.abort();
 
   async function removeSession(id: string) {
     if (!id.startsWith("acp-")) await api.deleteSession(id);
@@ -524,6 +541,11 @@ export function App() {
                 onModelChange={setModel}
                 mode={mode}
                 onModeChange={setMode}
+                onStop={
+                  backend === "codex" || backend === "claude"
+                    ? stopGenerating
+                    : undefined
+                }
               />
             </div>
           )}
@@ -641,6 +663,7 @@ function Composer({
   onModelChange,
   mode = "product_analytics",
   onModeChange,
+  onStop,
 }: {
   onSend: (value: string) => void;
   sending?: boolean;
@@ -654,6 +677,7 @@ function Composer({
   onModelChange?: (value: string) => void;
   mode?: AgentMode;
   onModeChange?: (value: AgentMode) => void;
+  onStop?: () => void;
 }) {
   const [value, setValue] = useState("");
   const submit = (event?: FormEvent) => {
@@ -718,11 +742,15 @@ function Composer({
           )}
         </div>
         <button
-          type="submit"
-          disabled={!value.trim() || sending || disabled}
-          aria-label="Send message"
+          type={sending && onStop ? "button" : "submit"}
+          onClick={sending && onStop ? onStop : undefined}
+          disabled={sending ? !onStop : !value.trim() || disabled}
+          aria-label={sending && onStop ? "Stop generating" : "Send message"}
+          className={sending && onStop ? "stop-button" : undefined}
         >
-          {sending ? (
+          {sending && onStop ? (
+            <Square size={13} fill="currentColor" />
+          ) : sending ? (
             <LoaderCircle className="spin" size={16} />
           ) : (
             <ArrowUp size={17} />

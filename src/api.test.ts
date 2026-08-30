@@ -100,6 +100,50 @@ describe("AeoKitApi", () => {
     expect(events).toEqual(["activity", "text_delta", "text_delta", "done"]);
   });
 
+  it("cancels an active desktop agent turn and removes its listener", async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn().mockResolvedValue(true);
+    const unsubscribe = vi.fn();
+    let requestId = "";
+    let rejectPrompt!: (reason: unknown) => void;
+    const prompt = vi.fn((input: { requestId: string }) => {
+      requestId = input.requestId;
+      return new Promise<{ answer: string; stopReason: string }>(
+        (_resolve, reject) => {
+          rejectPrompt = reject;
+        },
+      );
+    });
+    window.aeokitDesktop = {
+      platform: "darwin",
+      listAgents: vi.fn(),
+      prompt,
+      cancel,
+      onProgress: vi.fn(() => unsubscribe),
+      loadSettings: vi.fn(),
+      saveSettings: vi.fn(),
+      runtimeRequest: vi.fn(),
+    };
+    const api = new AeoKitApi({ apiUrl: "/api", token: "" });
+    const turn = api.acpSend(
+      "codex",
+      "gpt-5.6-sol",
+      "Acme",
+      [],
+      "Hello",
+      "product_analytics",
+      undefined,
+      controller.signal,
+    );
+
+    controller.abort();
+    expect(cancel).toHaveBeenCalledWith(requestId);
+    rejectPrompt(new DOMException("cancelled", "AbortError"));
+    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    delete window.aeokitDesktop;
+  });
+
   it("recognizes requests that need evidence from every project", () => {
     expect(requestsPortfolioContext("check all projects")).toBe(true);
     expect(requestsPortfolioContext("what about my other projects?")).toBe(

@@ -377,6 +377,13 @@ button {
   background: #d8d8d3;
   cursor: default;
 }
+.composer-bottom .stop-button {
+  background: #31322e;
+  color: #fff;
+}
+.composer-bottom .stop-button:hover {
+  background: #20211e;
+}
 .composer-large {
   min-height: 104px;
   padding: 15px 15px 10px;
