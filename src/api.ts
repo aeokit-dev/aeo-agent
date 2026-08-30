@@ -40,6 +40,21 @@ export function normalizeApiUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+export function isValidApiUrl(value: string): boolean {
+  const normalized = normalizeApiUrl(value);
+  if (/^\/(?!\/)[a-z0-9/_-]*$/i.test(normalized)) return true;
+  try {
+    const url = new URL(normalized);
+    if (url.protocol === "https:") return true;
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function requestsPortfolioContext(prompt: string): boolean {
   return /\b(projects|portfolio|cross[- ]project)\b/i.test(prompt);
 }

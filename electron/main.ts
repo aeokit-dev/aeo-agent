@@ -27,6 +27,17 @@ function validSender(event: Electron.IpcMainInvokeEvent) {
   }
 }
 
+function validNavigation(url: string) {
+  if (url.startsWith("file://")) return true;
+  const devUrl = process.env.ELECTRON_RENDERER_URL;
+  if (!devUrl) return false;
+  try {
+    return new URL(url).origin === new URL(devUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 function createWindow() {
   const developmentIcon = path.join(app.getAppPath(), "build", "icon.icns");
   const window = new BrowserWindow({
@@ -55,10 +66,7 @@ function createWindow() {
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
-    const devUrl = process.env.ELECTRON_RENDERER_URL;
-    if (!url.startsWith("file://") && (!devUrl || !url.startsWith(devUrl))) {
-      event.preventDefault();
-    }
+    if (!validNavigation(url)) event.preventDefault();
   });
   if (process.env.ELECTRON_RENDERER_URL)
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -133,6 +141,11 @@ app.whenReady().then(() => {
       const baseUrl = new URL(base);
       if (!["http:", "https:"].includes(baseUrl.protocol))
         throw new Error("Invalid API URL");
+      if (
+        baseUrl.protocol === "http:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(baseUrl.hostname)
+      )
+        throw new Error("Remote API URLs must use HTTPS");
       const response = await fetch(`${base.replace(/\/+$/, "")}${input.path}`, {
         method: input.method,
         headers: {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AeoKitApi,
   initialSettings,
+  isValidApiUrl,
   normalizeApiUrl,
   requestsPortfolioContext,
 } from "./api";
@@ -20,6 +21,17 @@ describe("AeoKitApi", () => {
     expect(normalizeApiUrl(" http://localhost:3000/api/// ")).toBe(
       "http://localhost:3000/api",
     ));
+
+  it("accepts supported API locations and rejects malformed URLs", () => {
+    expect(isValidApiUrl("/api")).toBe(true);
+    expect(isValidApiUrl("http://localhost:3000/api")).toBe(true);
+    expect(isValidApiUrl("https://api.example.com/v1")).toBe(true);
+    expect(isValidApiUrl("http://api.example.com/v1")).toBe(false);
+    expect(isValidApiUrl("javascript:alert(1)")).toBe(false);
+    expect(isValidApiUrl("not a url")).toBe(false);
+    expect(isValidApiUrl("//example.com/api")).toBe(false);
+    expect(isValidApiUrl("/")).toBe(false);
+  });
 
   it("uses the runtime chat contract and bearer token", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
