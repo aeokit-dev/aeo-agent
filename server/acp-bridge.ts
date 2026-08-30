@@ -4,7 +4,11 @@ import type { ServerResponse } from "node:http";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { Connect, Plugin } from "vite";
-import { buildAgentPrompt, type AgentMode } from "../shared/agent-experience";
+import {
+  buildAgentPrompt,
+  cleanAgentAnswer,
+  type AgentMode,
+} from "../shared/agent-experience";
 import type { AgentStreamEvent } from "../shared/streaming";
 
 export type ProviderId = "codex" | "claude";
@@ -211,7 +215,10 @@ export async function runAcpTurn(
             for (;;) {
               const message = await session.nextUpdate();
               if (message.kind === "stop") {
-                const result = { answer, stopReason: message.stopReason };
+                const result = {
+                  answer: cleanAgentAnswer(answer),
+                  stopReason: message.stopReason,
+                };
                 onEvent?.({ type: "done", ...result });
                 return result;
               }

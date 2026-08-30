@@ -115,9 +115,15 @@ export class AeoKitApi {
     prompt: string,
     mode: AgentMode,
     onEvent?: (event: AgentStreamEvent) => void,
+    signal?: AbortSignal,
   ) => {
     if (window.aeokitDesktop) {
       const requestId = crypto.randomUUID();
+      const cancel = () => void window.aeokitDesktop?.cancel(requestId);
+      if (signal?.aborted) {
+        throw new DOMException("The request was cancelled", "AbortError");
+      }
+      signal?.addEventListener("abort", cancel, { once: true });
       const unsubscribe = window.aeokitDesktop.onProgress((event) => {
         if (event.requestId === requestId) onEvent?.(event.event);
       });
@@ -133,6 +139,7 @@ export class AeoKitApi {
         });
         return result.answer;
       } finally {
+        signal?.removeEventListener("abort", cancel);
         unsubscribe();
       }
     }
@@ -147,6 +154,7 @@ export class AeoKitApi {
         prompt,
         mode,
       }),
+      signal,
     });
     if (!response.ok) {
       const data = (await response.json().catch(() => ({}))) as {

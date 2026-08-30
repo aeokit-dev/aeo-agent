@@ -2,6 +2,31 @@
 
 A standalone agent client for the [AeoKit](https://github.com/aeokit-dev/aeokit) API runtime. It follows the interaction model of PostHog AI: a focused new-chat screen, capability-based starter prompts, persistent chat history, a compact sticky composer, grounded answers, and visible sources.
 
+AeoKit Agent is the conversational layer for AeoKit's evidence. AeoKit measures
+answers, citations, mentions, and crawler activity; the agent helps a person
+explore that evidence, understand changes, and decide what to investigate next.
+It does not replace the runtime or maintain a separate AEO data model.
+
+## From publication to citation
+
+A useful AEO experiment starts with a new, genuinely useful source and follows
+its path into live AI answers:
+
+```text
+publish -> AI crawler visit -> first mention -> first citation
+```
+
+Traditional SEO often requires a new site to accumulate ranking signals over
+time. An answer engine using live web retrieval can potentially use a new page
+as evidence much sooner when it is discoverable, relevant, and original.
+Appearance is not guaranteed, so the important product capability is
+measurement rather than a promise of instant inclusion.
+
+Use AeoKit Agent to ask questions about the evidence collected by AeoKit—for
+example, which prompts cite the new source, which providers found it first, and
+where citation gaps remain. Reusable agent workflows belong in
+`aeokit-skills`; the auditable results remain in AeoKit.
+
 The visual identity uses AeoKit's official modular-K icon, cobalt palette, Inter typography, and neutral surface system from [aeokit.dev](https://aeokit.dev/).
 
 ## Run locally
