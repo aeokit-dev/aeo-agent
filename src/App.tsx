@@ -2,6 +2,7 @@ import {
   FormEvent,
   KeyboardEvent,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -15,10 +16,13 @@ import {
   Clock3,
   Copy,
   ExternalLink,
+  Eye,
+  EyeOff,
   LoaderCircle,
   Menu,
   MessageSquare,
   Plus,
+  Search,
   Settings,
   Sparkles,
   Square,
@@ -32,6 +36,7 @@ import remarkGfm from "remark-gfm";
 import {
   AeoKitApi,
   initialSettings,
+  isValidApiUrl,
   normalizeApiUrl,
   type ClientSettings,
 } from "./api";
@@ -44,10 +49,22 @@ import type {
   VisualizationArtifact,
 } from "./types";
 import { agentModes, type AgentMode } from "../shared/agent-experience";
-import { parseContentBlocks } from "./artifacts";
+import { parseContentBlocks, serializeContentForClipboard } from "./artifacts";
 import type { AgentStreamEvent } from "../shared/streaming";
 
 const selectedProjectKey = "aeokit-agent-project";
+const chartColors = ["#5263d8", "#d96b3d", "#3a9b78", "#9a5bc4", "#c49a32"];
+const seriesColor = (index: number, color?: string) =>
+  color || chartColors[index % chartColors.length];
+const safeLink = (href?: string) =>
+  href && /^https:\/\//i.test(href) ? href : undefined;
+const linkHostname = (href: string) => {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch {
+    return "Invalid link";
+  }
+};
 
 function Logo() {
   return (
@@ -80,7 +97,11 @@ export function App() {
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const historySearchRef = useRef<HTMLInputElement>(null);
+  const autoScrollRef = useRef(true);
   const activeTurnRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -90,8 +111,41 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!historyOpen) return;
+    const closeHistory = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setHistoryOpen(false);
+    };
+    window.addEventListener("keydown", closeHistory);
+    return () => window.removeEventListener("keydown", closeHistory);
+  }, [historyOpen]);
+
+  useEffect(() => {
+    const focusHistorySearch = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey)
+        return;
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable=true]"))
+        return;
+      if (sessions.length <= 6) return;
+      event.preventDefault();
+      setHistoryOpen(true);
+      requestAnimationFrame(() => historySearchRef.current?.focus());
+    };
+    window.addEventListener("keydown", focusHistorySearch);
+    return () => window.removeEventListener("keydown", focusHistorySearch);
+  }, [sessions.length]);
+
   const project = projects.find((item) => item.id === projectId);
   const activeSession = sessions.find((item) => item.id === sessionId);
+  const visibleSessions = useMemo(() => {
+    const query = historyQuery.trim().toLocaleLowerCase();
+    return query
+      ? sessions.filter((item) =>
+          item.title.toLocaleLowerCase().includes(query),
+        )
+      : sessions;
+  }, [historyQuery, sessions]);
 
   useEffect(() => {
     let live = true;
@@ -138,6 +192,7 @@ export function App() {
       setSessionId(null);
       return;
     }
+    setHistoryQuery("");
     localStorage.setItem(selectedProjectKey, projectId);
     if (projectId === "local-workspace") {
       setSessions([]);
@@ -172,12 +227,14 @@ export function App() {
   }, [api, sessionId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!autoScrollRef.current) return;
+    bottomRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages, sending]);
 
   async function send(content: string) {
     const prompt = content.trim();
     if (!prompt || sending || !projectId) return;
+    autoScrollRef.current = true;
     setError("");
     setSending(true);
     setActivity([]);
@@ -358,7 +415,16 @@ export function App() {
   const stopGenerating = () => activeTurnRef.current?.abort();
 
   async function removeSession(id: string) {
-    if (!id.startsWith("acp-")) await api.deleteSession(id);
+    try {
+      if (!id.startsWith("acp-")) await api.deleteSession(id);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "The chat could not be deleted",
+      );
+      return;
+    }
     setSessions((items) => items.filter((item) => item.id !== id));
     if (sessionId === id) {
       setSessionId(null);
@@ -366,21 +432,28 @@ export function App() {
     }
   }
 
-  function saveSettings(next: ClientSettings) {
+  async function saveSettings(next: ClientSettings) {
     const normalized = { ...next, apiUrl: normalizeApiUrl(next.apiUrl) };
+    await window.aeokitDesktop?.saveSettings(normalized);
     localStorage.setItem("aeokit-agent-settings", JSON.stringify(normalized));
-    void window.aeokitDesktop?.saveSettings(normalized);
     setSettings(normalized);
     setSettingsOpen(false);
   }
 
   const startNew = () => {
+    autoScrollRef.current = true;
+    setPendingDeleteId(null);
     setSessionId(null);
     setMessages([]);
     setHistoryOpen(false);
   };
   const showWelcome = !sessionId && messages.length === 0;
   const hasStreamingMessage = messages.some((message) => message.streaming);
+  const connectionState = loading
+    ? { label: "Connecting to agent runtimes…", className: "is-loading" }
+    : backends.length
+      ? { label: "Agent runtime available", className: "is-connected" }
+      : { label: "Runtime unavailable — configure", className: "is-offline" };
 
   return (
     <div className={`app-shell ${isMacDesktop ? "macos-desktop" : ""}`}>
@@ -409,6 +482,8 @@ export function App() {
             className="icon-button mobile-only"
             onClick={() => setHistoryOpen(true)}
             aria-label="Open history"
+            aria-controls="chat-history"
+            aria-expanded={historyOpen}
           >
             <Menu size={18} />
           </button>
@@ -426,12 +501,16 @@ export function App() {
       </header>
 
       <div className="workspace">
-        <aside className={`history ${historyOpen ? "history-open" : ""}`}>
+        <aside
+          id="chat-history"
+          className={`history ${historyOpen ? "history-open" : ""}`}
+        >
           <div className="history-head">
             <span>Chats</span>
             <button
               className="icon-button mobile-only"
               onClick={() => setHistoryOpen(false)}
+              aria-label="Close history"
             >
               <X size={16} />
             </button>
@@ -445,45 +524,142 @@ export function App() {
             </span>
             <span>New chat</span>
           </button>
+          {sessions.length > 6 && (
+            <label className="history-search">
+              <Search size={13} />
+              <input
+                ref={historySearchRef}
+                type="search"
+                value={historyQuery}
+                onChange={(event) => {
+                  setHistoryQuery(event.target.value);
+                  setPendingDeleteId(null);
+                }}
+                placeholder="Search chats"
+                aria-label="Search chats"
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  if (historyQuery) {
+                    event.stopPropagation();
+                    setHistoryQuery("");
+                  } else setHistoryOpen(false);
+                }}
+              />
+              {historyQuery && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryQuery("")}
+                  aria-label="Clear chat search"
+                >
+                  <X size={12} />
+                </button>
+              )}
+              {!historyQuery && <kbd>/</kbd>}
+            </label>
+          )}
           <div className="history-label">
-            <Clock3 size={12} /> Recent
+            <span>
+              <Clock3 size={12} /> {historyQuery ? "Results" : "Recent"}
+            </span>
+            <small
+              role="status"
+              aria-live="polite"
+              aria-label={`${visibleSessions.length} ${visibleSessions.length === 1 ? "chat" : "chats"}`}
+            >
+              {visibleSessions.length}
+            </small>
           </div>
           <div className="history-list">
-            {sessions.map((session) => (
+            {!visibleSessions.length && !loading && (
+              <div className="history-empty">
+                <MessageSquare size={16} />
+                <span>
+                  {historyQuery ? "No matching chats" : "No recent chats yet"}
+                </span>
+                <small>
+                  {historyQuery
+                    ? "Try another search."
+                    : "Your conversations will appear here."}
+                </small>
+              </div>
+            )}
+            {visibleSessions.map((session) => (
               <div
                 className={`history-row ${session.id === sessionId ? "active" : ""}`}
                 key={session.id}
               >
                 <button
                   onClick={() => {
+                    autoScrollRef.current = true;
+                    setPendingDeleteId(null);
                     setSessionId(session.id);
                     setHistoryOpen(false);
                   }}
+                  aria-current={session.id === sessionId ? "page" : undefined}
+                  title={session.title}
                 >
                   <MessageSquare size={14} />
                   <span>{session.title}</span>
                 </button>
                 <button
-                  className="delete-chat"
-                  onClick={() => void removeSession(session.id)}
-                  aria-label={`Delete ${session.title}`}
+                  className={`delete-chat ${pendingDeleteId === session.id ? "confirm-delete" : ""}`}
+                  onClick={() => {
+                    if (pendingDeleteId !== session.id) {
+                      setPendingDeleteId(session.id);
+                      return;
+                    }
+                    void removeSession(session.id).finally(() =>
+                      setPendingDeleteId(null),
+                    );
+                  }}
+                  onBlur={() =>
+                    pendingDeleteId === session.id && setPendingDeleteId(null)
+                  }
+                  aria-label={
+                    pendingDeleteId === session.id
+                      ? `Confirm delete ${session.title}`
+                      : `Delete ${session.title}`
+                  }
                 >
-                  <Trash2 size={13} />
+                  {pendingDeleteId === session.id ? (
+                    <>
+                      <Check size={12} /> Confirm
+                    </>
+                  ) : (
+                    <Trash2 size={13} />
+                  )}
                 </button>
               </div>
             ))}
           </div>
-          <div className="history-footer">
+          <button
+            className={`history-footer ${connectionState.className}`}
+            onClick={() => !backends.length && setSettingsOpen(true)}
+            disabled={loading || !!backends.length}
+            aria-label={connectionState.label}
+          >
             <span className="status-dot" />
-            <span>Connected to AeoKit runtime</span>
-          </div>
+            <span role="status" aria-live="polite">
+              {connectionState.label}
+            </span>
+          </button>
         </aside>
 
-        <main className="chat">
+        <main
+          className="chat"
+          onScroll={(event) => {
+            const container = event.currentTarget;
+            autoScrollRef.current =
+              container.scrollHeight -
+                container.scrollTop -
+                container.clientHeight <
+              120;
+          }}
+        >
           {error && (
-            <div className="error-banner">
+            <div className="error-banner" role="alert">
               <span>{error}</span>
-              <button onClick={() => setError("")}>
+              <button onClick={() => setError("")} aria-label="Dismiss error">
                 <X size={14} />
               </button>
             </div>
@@ -510,7 +686,9 @@ export function App() {
               <div className="thread-header">
                 <div>
                   <span className="eyebrow">AeoKit Agent</span>
-                  <h1>{activeSession?.title || "New chat"}</h1>
+                  <h1 title={activeSession?.title || "New chat"}>
+                    {activeSession?.title || "New chat"}
+                  </h1>
                 </div>
                 {backends.length > 1 && (
                   <BackendPicker
@@ -650,7 +828,7 @@ function Welcome({
   );
 }
 
-function Composer({
+export function Composer({
   onSend,
   sending = false,
   disabled = false,
@@ -680,15 +858,27 @@ function Composer({
   onStop?: () => void;
 }) {
   const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resizeTextarea = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  };
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     if (value.trim() && !sending && !disabled) {
       onSend(value);
       setValue("");
+      requestAnimationFrame(resizeTextarea);
     }
   };
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       submit();
     }
@@ -699,11 +889,16 @@ function Composer({
       onSubmit={submit}
     >
       <textarea
+        ref={textareaRef}
         autoFocus={autoFocus}
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          requestAnimationFrame(resizeTextarea);
+        }}
         onKeyDown={keyDown}
         placeholder="Ask AeoKit anything…"
+        aria-label="Message"
         rows={large ? 2 : 1}
         disabled={disabled}
       />
@@ -741,6 +936,9 @@ function Composer({
             <span>Project data + web research</span>
           )}
         </div>
+        <span className="composer-hint">
+          Enter to send · Shift+Enter for new line
+        </span>
         <button
           type={sending && onStop ? "button" : "submit"}
           onClick={sending && onStop ? onStop : undefined}
@@ -761,7 +959,7 @@ function Composer({
   );
 }
 
-function Message({ message }: { message: ChatMessage }) {
+export function Message({ message }: { message: ChatMessage }) {
   if (message.role === "user")
     return (
       <div className="message user-message">
@@ -786,6 +984,18 @@ function Message({ message }: { message: ChatMessage }) {
             <ReactMarkdown
               key={`markdown-${index}`}
               remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children }) => {
+                  const url = safeLink(href);
+                  return url ? (
+                    <a href={url} target="_blank" rel="noreferrer">
+                      {children}
+                    </a>
+                  ) : (
+                    <span>{children}</span>
+                  );
+                },
+              }}
             >
               {block.content}
             </ReactMarkdown>
@@ -836,18 +1046,40 @@ function Message({ message }: { message: ChatMessage }) {
           <div className="sources">
             <span>Sources</span>
             <div>
-              {message.citations.map((citation, index) => (
-                <a
-                  href={citation.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  key={`${citation.url}-${index}`}
-                >
-                  <span>{index + 1}</span>
-                  {citation.title || citation.domain}
-                  <ExternalLink size={11} />
-                </a>
-              ))}
+              {message.citations.map((citation, index) =>
+                (() => {
+                  const url = safeLink(citation.url);
+                  const label = citation.title || citation.domain;
+                  const contents = (
+                    <>
+                      <span className="source-number">{index + 1}</span>
+                      <span className="source-copy">
+                        <strong title={label}>{label}</strong>
+                        <small>{linkHostname(citation.url)}</small>
+                      </span>
+                      {url && <ExternalLink size={11} />}
+                    </>
+                  );
+                  return url ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      key={`${citation.url}-${index}`}
+                    >
+                      {contents}
+                    </a>
+                  ) : (
+                    <span
+                      className="source-disabled"
+                      key={`${citation.url}-${index}`}
+                      title="This citation has an invalid destination"
+                    >
+                      {contents}
+                    </span>
+                  );
+                })(),
+              )}
             </div>
           </div>
         )}
@@ -856,19 +1088,31 @@ function Message({ message }: { message: ChatMessage }) {
             Answered by {message.model.replace(/:online$/, "")}
           </div>
         )}
-        {!message.streaming && <MessageActions content={message.content} />}
+        {!message.streaming && (
+          <MessageActions
+            messageId={message.id}
+            content={serializeContentForClipboard(message.content)}
+          />
+        )}
       </div>
     </article>
   );
 }
 
-function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
+export function VisualizationCard({
+  artifact,
+}: {
+  artifact: VisualizationArtifact;
+}) {
   const [collapsed, setCollapsed] = useState(false);
+  const bodyId = useId();
   const xKey = artifact.xKey || "label";
   const numericValues = artifact.data.flatMap((row) =>
     artifact.series.map((series) => Number(row[series.key]) || 0),
   );
-  const maximum = Math.max(1, ...numericValues);
+  const minimum = Math.min(0, ...numericValues);
+  const maximum = Math.max(0, ...numericValues);
+  const maximumMagnitude = Math.max(1, ...numericValues.map(Math.abs));
   return (
     <section className="visualization-card">
       <header>
@@ -882,12 +1126,14 @@ function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
         <button
           onClick={() => setCollapsed((value) => !value)}
           aria-label={collapsed ? "Expand chart" : "Collapse chart"}
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
         >
           <ChevronRight className={collapsed ? "" : "expanded"} size={15} />
         </button>
       </header>
       {!collapsed && (
-        <div className="visualization-body">
+        <div className="visualization-body" id={bodyId}>
           {artifact.type === "metric" ? (
             <div className="metric-value">
               {String(artifact.data[0]?.[artifact.series[0]?.key] ?? "–")}
@@ -896,18 +1142,21 @@ function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
           ) : artifact.type === "table" ? (
             <div className="artifact-table-wrap">
               <table>
+                <caption className="sr-only">{artifact.title}</caption>
                 <thead>
                   <tr>
-                    <th>{xKey}</th>
+                    <th scope="col">{xKey}</th>
                     {artifact.series.map((series) => (
-                      <th key={series.key}>{series.label}</th>
+                      <th scope="col" key={series.key}>
+                        {series.label}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {artifact.data.map((row, index) => (
                     <tr key={index}>
-                      <td>{String(row[xKey] ?? "")}</td>
+                      <th scope="row">{String(row[xKey] ?? "")}</th>
                       {artifact.series.map((series) => (
                         <td key={series.key}>
                           {String(row[series.key] ?? "–")}
@@ -925,18 +1174,23 @@ function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
                 <div className="bar-group" key={index}>
                   <span className="bar-label">{String(row[xKey] ?? "")}</span>
                   <div className="bar-series">
-                    {artifact.series.map((series) => {
+                    {artifact.series.map((series, seriesIndex) => {
                       const value = Number(row[series.key]) || 0;
                       return (
                         <div
-                          className="bar-row"
+                          className={`bar-row ${value < 0 ? "negative" : ""}`}
                           key={series.key}
                           title={`${series.label}: ${value}${artifact.unit || ""}`}
+                          aria-label={`${series.label}: ${value}${artifact.unit || ""}`}
+                          role="img"
                         >
                           <i
                             style={{
-                              width: `${Math.max(2, (value / maximum) * 100)}%`,
-                              background: series.color || "#5263d8",
+                              width: `${Math.max(2, (Math.abs(value) / maximumMagnitude) * 100)}%`,
+                              background:
+                                value < 0
+                                  ? "#c55454"
+                                  : seriesColor(seriesIndex, series.color),
                             }}
                           />
                           <em>
@@ -951,13 +1205,21 @@ function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
               ))}
             </div>
           ) : (
-            <LineChart artifact={artifact} maximum={maximum} />
+            <LineChart
+              artifact={artifact}
+              minimum={minimum}
+              maximum={maximum}
+            />
           )}
           {artifact.series.length > 1 && (
             <div className="chart-legend">
-              {artifact.series.map((series) => (
+              {artifact.series.map((series, seriesIndex) => (
                 <span key={series.key}>
-                  <i style={{ background: series.color || "#5263d8" }} />
+                  <i
+                    style={{
+                      background: seriesColor(seriesIndex, series.color),
+                    }}
+                  />
                   {series.label}
                 </span>
               ))}
@@ -969,12 +1231,22 @@ function VisualizationCard({ artifact }: { artifact: VisualizationArtifact }) {
   );
 }
 
-function ApprovalCard({
+export function ApprovalCard({
   approval,
 }: {
   approval: NonNullable<ChatMessage["approval"]>;
 }) {
-  const [status, setStatus] = useState(approval.status);
+  const storageKey = `aeokit-approval-${approval.id}`;
+  const [status, setStatus] = useState(() => {
+    const stored = localStorage.getItem(storageKey);
+    return stored === "approved" || stored === "rejected"
+      ? stored
+      : approval.status;
+  });
+  const decide = (decision: "approved" | "rejected") => {
+    localStorage.setItem(storageKey, decision);
+    setStatus(decision);
+  };
   return (
     <section className={`approval-card ${approval.risk}`}>
       <div>
@@ -982,16 +1254,24 @@ function ApprovalCard({
         <p>{approval.description}</p>
       </div>
       {status === "pending" ? (
-        <div className="approval-actions">
-          <button onClick={() => setStatus("rejected")}>Reject</button>
-          <button className="approve" onClick={() => setStatus("approved")}>
-            Approve
-          </button>
+        <div>
+          <p className="approval-note">
+            Saves your decision locally; no external action will run.
+          </p>
+          <div className="approval-actions">
+            <button onClick={() => decide("rejected")}>Mark rejected</button>
+            <button className="approve" onClick={() => decide("approved")}>
+              Mark approved
+            </button>
+          </div>
         </div>
       ) : (
-        <span className={`approval-status ${status}`}>
-          {status === "approved" ? "Approved" : "Rejected"}
-        </span>
+        <div className={`approval-status ${status}`} role="status">
+          <strong>
+            {status === "approved" ? "Approved locally" : "Rejected locally"}
+          </strong>
+          <small>Saved on this device; no external action was run.</small>
+        </div>
       )}
     </section>
   );
@@ -999,9 +1279,11 @@ function ApprovalCard({
 
 function LineChart({
   artifact,
+  minimum,
   maximum,
 }: {
   artifact: VisualizationArtifact;
+  minimum: number;
   maximum: number;
 }) {
   const width = 640;
@@ -1009,12 +1291,16 @@ function LineChart({
   const padding = 24;
   const xKey = artifact.xKey || "label";
   const denominator = Math.max(1, artifact.data.length - 1);
+  const range = Math.max(1, maximum - minimum);
+  const tickEvery = Math.max(1, Math.ceil(artifact.data.length / 6));
+  const descriptionId = useId();
   return (
     <div className="line-chart">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={artifact.title}
+        aria-describedby={descriptionId}
       >
         {[0, 0.5, 1].map((point) => (
           <line
@@ -1025,14 +1311,14 @@ function LineChart({
             y2={padding + point * (height - padding * 2)}
           />
         ))}
-        {artifact.series.map((series) => {
+        {artifact.series.map((series, seriesIndex) => {
           const points = artifact.data
             .map((row, index) => {
               const x = padding + (index / denominator) * (width - padding * 2);
               const y =
                 height -
                 padding -
-                ((Number(row[series.key]) || 0) / maximum) *
+                (((Number(row[series.key]) || 0) - minimum) / range) *
                   (height - padding * 2);
               return `${x},${y}`;
             })
@@ -1041,35 +1327,68 @@ function LineChart({
             <polyline
               key={series.key}
               points={points}
-              style={{ stroke: series.color || "#5263d8" }}
+              style={{ stroke: seriesColor(seriesIndex, series.color) }}
             />
           );
         })}
-        {artifact.data.map((row, index) => (
-          <text
-            key={index}
-            x={padding + (index / denominator) * (width - padding * 2)}
-            y={height - 5}
-          >
-            {String(row[xKey] ?? "")}
-          </text>
-        ))}
+        {artifact.data.map((row, index) =>
+          index % tickEvery === 0 || index === artifact.data.length - 1 ? (
+            <text
+              key={index}
+              x={padding + (index / denominator) * (width - padding * 2)}
+              y={height - 5}
+            >
+              {String(row[xKey] ?? "")}
+            </text>
+          ) : null,
+        )}
       </svg>
+      <table className="sr-only" id={descriptionId}>
+        <caption>{artifact.title}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{xKey}</th>
+            {artifact.series.map((series) => (
+              <th scope="col" key={series.key}>
+                {series.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {artifact.data.map((row, index) => (
+            <tr key={index}>
+              <th scope="row">{String(row[xKey] ?? "")}</th>
+              {artifact.series.map((series) => (
+                <td key={series.key}>
+                  {String(row[series.key] ?? "–")}
+                  {artifact.unit || ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function ActivityTrace({ steps }: { steps: string[] }) {
   const [open, setOpen] = useState(false);
+  const detailsId = useId();
   return (
     <div className={`activity-trace ${open ? "open" : ""}`}>
-      <button onClick={() => setOpen((value) => !value)}>
+      <button
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-controls={detailsId}
+      >
         <ChevronRight size={12} />
         <span>{steps.length} activities</span>
         <small>Completed</small>
       </button>
       {open && (
-        <div className="activity-trace-list">
+        <div className="activity-trace-list" id={detailsId}>
           {steps.map((step, index) => (
             <div key={`${step}-${index}`}>
               <Check size={11} />
@@ -1084,17 +1403,22 @@ function ActivityTrace({ steps }: { steps: string[] }) {
 
 function LiveActivity({ steps }: { steps: string[] }) {
   const [open, setOpen] = useState(false);
+  const detailsId = useId();
   const current = steps.at(-1) || "Thinking";
   return (
     <div className={`live-activity ${open ? "open" : ""}`}>
-      <button onClick={() => setOpen((value) => !value)}>
+      <button
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-controls={detailsId}
+      >
         <LoaderCircle className="spin" size={13} />
         <span>{current}</span>
         {steps.length > 1 && <small>{steps.length} activities</small>}
         <ChevronRight size={11} />
       </button>
       {open && (
-        <div className="live-activity-details">
+        <div className="live-activity-details" id={detailsId}>
           {steps.slice(0, -1).map((step, index) => (
             <div key={`${step}-${index}`}>
               <Check size={10} />
@@ -1107,38 +1431,85 @@ function LiveActivity({ steps }: { steps: string[] }) {
   );
 }
 
-function MessageActions({ content }: { content: string }) {
-  const [copied, setCopied] = useState(false);
-  const [rating, setRating] = useState<"up" | "down" | null>(null);
+export function MessageActions({
+  messageId,
+  content,
+}: {
+  messageId: string;
+  content: string;
+}) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
+  const ratingKey = `aeokit-rating-${messageId}`;
+  const [rating, setRating] = useState<"up" | "down" | null>(() => {
+    const stored = localStorage.getItem(ratingKey);
+    return stored === "up" || stored === "down" ? stored : null;
+  });
+  const copyAnswer = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    window.setTimeout(() => setCopyState("idle"), 1800);
+  };
+  const rateAnswer = (next: "up" | "down") => {
+    const value = rating === next ? null : next;
+    if (value) localStorage.setItem(ratingKey, value);
+    else localStorage.removeItem(ratingKey);
+    setRating(value);
+  };
   return (
     <div className="message-actions">
       <button
-        aria-label="Copy answer"
+        aria-label={
+          copyState === "copied"
+            ? "Answer copied"
+            : copyState === "error"
+              ? "Copy failed"
+              : "Copy answer"
+        }
         title="Copy answer"
-        onClick={() => {
-          void navigator.clipboard.writeText(content);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1500);
-        }}
+        onClick={() => void copyAnswer()}
       >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
+        {copyState === "copied" ? (
+          <Check size={12} />
+        ) : copyState === "error" ? (
+          <X size={12} />
+        ) : (
+          <Copy size={12} />
+        )}
       </button>
+      {copyState !== "idle" && (
+        <span className={`copy-status ${copyState}`} role="status">
+          {copyState === "copied" ? "Copied" : "Copy failed"}
+        </span>
+      )}
       <button
         className={rating === "up" ? "selected" : ""}
         aria-label="Helpful answer"
-        title="Helpful"
-        onClick={() => setRating(rating === "up" ? null : "up")}
+        aria-pressed={rating === "up"}
+        title="Save helpful rating on this device"
+        onClick={() => rateAnswer("up")}
       >
         <ThumbsUp size={12} />
       </button>
       <button
         className={rating === "down" ? "selected" : ""}
         aria-label="Unhelpful answer"
-        title="Not helpful"
-        onClick={() => setRating(rating === "down" ? null : "down")}
+        aria-pressed={rating === "down"}
+        title="Save unhelpful rating on this device"
+        onClick={() => rateAnswer("down")}
       >
         <ThumbsDown size={12} />
       </button>
+      {rating && (
+        <span className="rating-status" role="status">
+          Saved locally
+        </span>
+      )}
     </div>
   );
 }
@@ -1216,71 +1587,178 @@ function BackendPicker({
   );
 }
 
-function SettingsDialog({
+export function SettingsDialog({
   settings,
   onSave,
   onClose,
 }: {
   settings: ClientSettings;
-  onSave: (value: ClientSettings) => void;
+  onSave: (value: ClientSettings) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(settings);
+  const [validationError, setValidationError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [tokenVisible, setTokenVisible] = useState(false);
+  const apiUrlRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    apiUrlRef.current?.focus();
+    return () => previouslyFocused?.focus();
+  }, []);
+
+  const handleDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      if (!saving) onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]",
+    );
+    if (!focusable?.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div
       className="modal-layer"
       role="dialog"
       aria-modal="true"
-      aria-label="Connection settings"
+      aria-labelledby="settings-title"
+      onKeyDown={handleDialogKeyDown}
     >
-      <button className="modal-scrim" onClick={onClose} />
+      <button
+        className="modal-scrim"
+        onClick={onClose}
+        aria-label="Close connection settings"
+        tabIndex={-1}
+        disabled={saving}
+      />
       <form
+        ref={dialogRef}
         className="settings-card"
-        onSubmit={(event) => {
+        aria-busy={saving}
+        onSubmit={async (event) => {
           event.preventDefault();
-          onSave(draft);
+          if (!isValidApiUrl(draft.apiUrl)) {
+            setValidationError(
+              "Use HTTPS, a local HTTP address, or a path such as /api.",
+            );
+            apiUrlRef.current?.focus();
+            return;
+          }
+          setSaving(true);
+          setSaveError("");
+          try {
+            await onSave(draft);
+          } catch (reason) {
+            setSaveError(
+              reason instanceof Error
+                ? reason.message
+                : "Settings could not be saved. Try again.",
+            );
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <div className="settings-title">
           <div>
-            <h2>Connection settings</h2>
+            <h2 id="settings-title">Connection settings</h2>
             <p>Connect this client to an AeoKit API runtime.</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose}>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label="Close connection settings"
+            disabled={saving}
+          >
             <X size={17} />
           </button>
         </div>
         <label>
           API URL
           <input
+            ref={apiUrlRef}
             value={draft.apiUrl}
-            onChange={(event) =>
-              setDraft({ ...draft, apiUrl: event.target.value })
-            }
+            onChange={(event) => {
+              setDraft({ ...draft, apiUrl: event.target.value });
+              setValidationError("");
+            }}
             placeholder="http://localhost:3000/api"
+            spellCheck={false}
+            aria-invalid={!!validationError}
+            aria-describedby={validationError ? "api-url-error" : undefined}
             required
           />
+          {validationError && (
+            <small className="field-error" id="api-url-error" role="alert">
+              {validationError}
+            </small>
+          )}
         </label>
         <label>
           Bearer token <span>optional for self-hosted</span>
-          <input
-            type="password"
-            value={draft.token}
-            onChange={(event) =>
-              setDraft({ ...draft, token: event.target.value })
-            }
-            placeholder="Paste a runtime token"
-          />
+          <div className="secret-input">
+            <input
+              type={tokenVisible ? "text" : "password"}
+              value={draft.token}
+              onChange={(event) =>
+                setDraft({ ...draft, token: event.target.value })
+              }
+              placeholder="Paste a runtime token"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              onClick={() => setTokenVisible((value) => !value)}
+              aria-label={
+                tokenVisible ? "Hide bearer token" : "Show bearer token"
+              }
+              title={tokenVisible ? "Hide token" : "Show token"}
+            >
+              {tokenVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
         </label>
         <p className="storage-note">
-          Settings are stored only in this browser.
+          Settings are stored locally on this device.
         </p>
+        {saveError && (
+          <p className="settings-save-error" role="alert">
+            {saveError}
+          </p>
+        )}
         <div className="settings-actions">
-          <button type="button" className="secondary-button" onClick={onClose}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onClose}
+            disabled={saving}
+          >
             Cancel
           </button>
-          <button className="primary-button">
-            <Check size={15} /> Save and reconnect
+          <button className="primary-button" disabled={saving}>
+            {saving ? (
+              <LoaderCircle className="spin" size={15} />
+            ) : (
+              <Check size={15} />
+            )}
+            {saving ? "Saving…" : "Save and reconnect"}
           </button>
         </div>
       </form>
