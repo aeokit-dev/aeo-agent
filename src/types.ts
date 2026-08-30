@@ -28,7 +28,53 @@ export interface ChatMessage {
   model: string | null;
   createdAt: string;
   activity?: string[];
+  toolCalls?: ToolCall[];
+  artifacts?: VisualizationArtifact[];
+  uiActions?: AiChatUiAction[];
+  approval?: ApprovalRequest;
+  streaming?: boolean;
 }
+
+export interface ApprovalRequest {
+  id: string;
+  title: string;
+  description: string;
+  risk: "low" | "medium" | "high";
+  status: "pending" | "approved" | "rejected";
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  label: string;
+  status: "pending" | "running" | "completed" | "failed";
+  summary?: string;
+}
+
+export interface VisualizationSeries {
+  key: string;
+  label: string;
+  color?: string;
+}
+
+export interface VisualizationArtifact {
+  type: "bar" | "line" | "table" | "metric";
+  title: string;
+  description?: string;
+  xKey?: string;
+  series: VisualizationSeries[];
+  data: Array<Record<string, string | number | null>>;
+  unit?: string;
+}
+
+export type AiChatUiAction =
+  | { type: "show_ui_insight"; insightId: string; label: string }
+  | {
+      type: "open_app_page";
+      page: string;
+      label: string;
+      executeImmediately: boolean;
+    };
 
 export interface ChatBackend {
   id: "local" | "openrouter" | "codex" | "claude";
@@ -41,4 +87,5 @@ export interface SendResponse {
   session: ChatSession;
   userMessage: ChatMessage;
   assistantMessage: ChatMessage;
+  uiActions?: AiChatUiAction[];
 }

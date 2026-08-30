@@ -4,6 +4,8 @@ import type { ServerResponse } from "node:http";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { Connect, Plugin } from "vite";
+import { buildAgentPrompt, type AgentMode } from "../shared/agent-experience";
+import type { AgentStreamEvent } from "../shared/streaming";
 
 export type ProviderId = "codex" | "claude";
 const providers = {
@@ -119,15 +121,9 @@ function systemPrompt(
   project: string,
   history: Array<{ role: string; content: string }>,
   prompt: string,
+  mode?: AgentMode,
 ) {
-  const transcript = history
-    .slice(-20)
-    .map(
-      (message) =>
-        `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`,
-    )
-    .join("\n\n");
-  return `You are AeoKit Agent, an AEO analyst. Answer from the supplied project and conversation context. Be concise and evidence-led. Say when context is insufficient. Do not inspect or modify files, run commands, or do coding work.\n\nProject: ${project}\n\nConversation:\n${transcript || "No earlier messages."}\n\nUser: ${prompt}`;
+  return buildAgentPrompt({ context: project, history, prompt, mode });
 }
 
 export async function runAcpTurn(
@@ -135,9 +131,12 @@ export async function runAcpTurn(
   model: string,
   prompt: string,
   signal: AbortSignal,
-  onProgress?: (label: string) => void,
+  onEvent?: (event: AgentStreamEvent) => void,
 ) {
-  onProgress?.(`Connecting to ${providers[providerId].label}`);
+  onEvent?.({
+    type: "activity",
+    label: `Connecting to ${providers[providerId].label}`,
+  });
   const adapter = adapterSpawn(providerId);
   const child = spawn(adapter.command, adapter.args, {
     cwd: process.cwd(),
@@ -184,7 +183,7 @@ export async function runAcpTurn(
             fs: { readTextFile: false, writeTextFile: false },
           },
         });
-        onProgress?.("Starting a local ACP session");
+        onEvent?.({ type: "activity", label: "Starting a local ACP session" });
         return context
           .buildSession(process.cwd())
           .withSession(async (session) => {
@@ -202,11 +201,54 @@ export async function runAcpTurn(
                 `${providers[providerId].label} does not support model selection`,
               );
             }
-            onProgress?.(`Using ${model}`);
-            onProgress?.("Analyzing your AeoKit evidence");
+            onEvent?.({ type: "activity", label: `Using ${model}` });
+            onEvent?.({
+              type: "activity",
+              label: "Analyzing your AeoKit evidence",
+            });
             void session.prompt(prompt);
-            const answer = await session.readText();
-            return { answer, stopReason: "end_turn" };
+            let answer = "";
+            for (;;) {
+              const message = await session.nextUpdate();
+              if (message.kind === "stop") {
+                const result = { answer, stopReason: message.stopReason };
+                onEvent?.({ type: "done", ...result });
+                return result;
+              }
+              const update = message.update;
+              if (
+                update.sessionUpdate === "agent_message_chunk" &&
+                update.content.type === "text"
+              ) {
+                answer += update.content.text;
+                onEvent?.({ type: "text_delta", delta: update.content.text });
+              } else if (
+                update.sessionUpdate === "tool_call" ||
+                update.sessionUpdate === "tool_call_update"
+              ) {
+                const status =
+                  update.status === "in_progress"
+                    ? "running"
+                    : update.status || "pending";
+                onEvent?.({
+                  type: "tool_call",
+                  id: update.toolCallId,
+                  name: update.name || update.kind || "tool",
+                  label: update.title || update.name || "Using a tool",
+                  status,
+                  ...(update.rawOutput !== undefined
+                    ? {
+                        summary: JSON.stringify(update.rawOutput).slice(0, 300),
+                      }
+                    : {}),
+                });
+              } else if (update.sessionUpdate === "agent_thought_chunk") {
+                onEvent?.({
+                  type: "activity",
+                  label: "Reasoning through the evidence",
+                });
+              }
+            }
           });
       });
   } catch (error) {
@@ -249,6 +291,7 @@ export function acpBridgePlugin(): Plugin {
             project?: string;
             history?: Array<{ role: string; content: string }>;
             prompt?: string;
+            mode?: AgentMode;
           };
           if (!input.provider || !(input.provider in providers)) {
             return json(res, 400, { error: "Invalid provider" });
@@ -259,21 +302,32 @@ export function acpBridgePlugin(): Plugin {
           const model = input.model || provider.model;
           if (!provider.models.some((item) => item.id === model))
             return json(res, 400, { error: "Invalid model" });
-          return json(
-            res,
-            200,
-            await runAcpTurn(
-              input.provider,
-              model,
-              systemPrompt(
-                input.project || "Local workspace",
-                input.history || [],
-                input.prompt,
-              ),
-              controller.signal,
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/x-ndjson");
+          res.setHeader("Cache-Control", "no-cache, no-transform");
+          res.setHeader("X-Accel-Buffering", "no");
+          const emit = (event: AgentStreamEvent) =>
+            res.write(`${JSON.stringify(event)}\n`);
+          await runAcpTurn(
+            input.provider,
+            model,
+            systemPrompt(
+              input.project || "Local workspace",
+              input.history || [],
+              input.prompt,
+              input.mode,
             ),
+            controller.signal,
+            emit,
           );
+          return res.end();
         } catch (error) {
+          if (res.headersSent) {
+            res.write(
+              `${JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "ACP request failed" })}\n`,
+            );
+            return res.end();
+          }
           return json(res, 502, {
             error:
               error instanceof Error ? error.message : "ACP request failed",

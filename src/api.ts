@@ -5,6 +5,8 @@ import type {
   Project,
   SendResponse,
 } from "./types";
+import type { AgentMode } from "../shared/agent-experience";
+import type { AgentStreamEvent } from "../shared/streaming";
 
 const fallbackBase = "/api";
 
@@ -107,12 +109,13 @@ export class AeoKitApi {
     context: string,
     history: Array<Pick<ChatMessage, "role" | "content">>,
     prompt: string,
-    onProgress?: (label: string) => void,
+    mode: AgentMode,
+    onEvent?: (event: AgentStreamEvent) => void,
   ) => {
     if (window.aeokitDesktop) {
       const requestId = crypto.randomUUID();
       const unsubscribe = window.aeokitDesktop.onProgress((event) => {
-        if (event.requestId === requestId) onProgress?.(event.label);
+        if (event.requestId === requestId) onEvent?.(event.event);
       });
       try {
         const result = await window.aeokitDesktop.prompt({
@@ -122,6 +125,7 @@ export class AeoKitApi {
           context,
           history,
           prompt,
+          mode,
         });
         return result.answer;
       } finally {
@@ -137,21 +141,60 @@ export class AeoKitApi {
         project: context,
         history,
         prompt,
+        mode,
       }),
     });
-    const data = (await response.json()) as { answer?: string; error?: string };
-    if (!response.ok || !data.answer) {
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
       throw new Error(data.error || "Local ACP agent failed");
     }
-    return data.answer;
+    if (
+      response.headers
+        ?.get("content-type")
+        ?.includes("application/x-ndjson") !== true
+    ) {
+      const data = (await response.json()) as {
+        answer?: string;
+        error?: string;
+      };
+      if (!data.answer) throw new Error(data.error || "Local ACP agent failed");
+      return data.answer;
+    }
+    if (!response.body) throw new Error("Local ACP stream was unavailable");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let answer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line) as AgentStreamEvent;
+        if (event.type === "error") throw new Error(event.message);
+        if (event.type === "text_delta") answer += event.delta;
+        if (event.type === "done") answer = event.answer;
+        onEvent?.(event);
+      }
+      if (done) break;
+    }
+    return answer;
   };
   agentContext = async (
     projectId: string,
     projectName: string,
+    projects: Project[],
     onProgress?: (label: string) => void,
   ) => {
     if (projectId === "local-workspace")
-      return JSON.stringify({ project: projectName });
+      return JSON.stringify({
+        activeProject: { id: projectId, name: projectName },
+        projects,
+      });
     const paths = [
       `/projects/${projectId}`,
       `/projects/${projectId}/dashboard`,
@@ -179,7 +222,38 @@ export class AeoKitApi {
           : { unavailable: true },
       ]),
     );
-    return JSON.stringify(context).slice(0, 120_000);
+    onProgress?.("Reading other project summaries");
+    const otherProjects = projects
+      .filter((item) => item.id !== projectId && item.id !== "local-workspace")
+      .slice(0, 20);
+    const summaries = await Promise.all(
+      otherProjects.map(async (item) => {
+        const [dashboard, visibility] = await Promise.allSettled([
+          this.request<unknown>(`/projects/${item.id}/dashboard`),
+          this.request<unknown>(`/projects/${item.id}/visibility`),
+        ]);
+        return {
+          project: item,
+          dashboard:
+            dashboard.status === "fulfilled"
+              ? dashboard.value
+              : { unavailable: true },
+          visibility:
+            visibility.status === "fulfilled"
+              ? visibility.value
+              : { unavailable: true },
+        };
+      }),
+    );
+    return JSON.stringify({
+      activeProject: projects.find((item) => item.id === projectId) || {
+        id: projectId,
+        name: projectName,
+      },
+      activeProjectData: context,
+      projectCatalog: projects,
+      otherProjectSummaries: summaries,
+    }).slice(0, 120_000);
   };
   sessions = async (projectId: string) =>
     (
