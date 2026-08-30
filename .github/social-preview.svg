@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">AeoKit Agent</title>
+  <desc id="desc">AeoKit Agent's modular K mark with the words Evidence-backed answer engine intelligence.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#263691"/>
+      <stop offset="1" stop-color="#5263D8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(1090 60) rotate(130) scale(650 520)">
+      <stop offset="0" stop-color="#91A0FF" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#5263D8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#121A52" flood-opacity="0.3"/>
+    </filter>
+    <mask id="open-joint" maskUnits="userSpaceOnUse" x="132" y="196" width="248" height="248">
+      <rect x="132" y="196" width="248" height="248" fill="white"/>
+      <circle cx="217.25" cy="320" r="19.375" fill="black"/>
+    </mask>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#background)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <circle cx="1110" cy="540" r="290" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2"/>
+  <circle cx="1110" cy="540" r="210" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2"/>
+
+  <g filter="url(#shadow)">
+    <rect x="112" y="176" width="288" height="288" rx="68" fill="#5263D8" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="2"/>
+    <g mask="url(#open-joint)" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-width="38.75">
+      <path d="M190.16 227V413"/>
+      <path d="M225 310.39L314.14 230.88"/>
+      <path d="M225 329.61L314.14 409.12"/>
+    </g>
+  </g>
+
+  <text x="472" y="292" fill="#FFFFFF" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="88" font-weight="750" letter-spacing="-3">AeoKit Agent</text>
+  <text x="478" y="362" fill="#DDE2FF" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="30" font-weight="500" letter-spacing="0.2">Evidence-backed answer engine intelligence</text>
+</svg>
