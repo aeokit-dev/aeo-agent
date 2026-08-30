@@ -8,6 +8,11 @@ import {
   type ProviderId,
 } from "../server/acp-bridge";
 import { buildAgentPrompt, type AgentMode } from "../shared/agent-experience";
+import {
+  availableUpdate,
+  trustedReleaseUrl,
+  type GitHubRelease,
+} from "../shared/updates";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const activeTurns = new Map<string, AbortController>();
@@ -221,6 +226,27 @@ app.whenReady().then(() => {
     if (!active) return false;
     active.abort();
     return true;
+  });
+  ipcMain.handle("updates:check", async (event) => {
+    if (!validSender(event)) throw new Error("Invalid IPC sender");
+    try {
+      const response = await fetch(
+        "https://api.github.com/repos/aeokit-dev/aeo-agent/releases/latest",
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "User-Agent": "AeoKit-Agent",
+          },
+          signal: AbortSignal.timeout(8_000),
+        },
+      );
+      if (!response.ok) return null;
+      const release = (await response.json()) as GitHubRelease;
+      if (!trustedReleaseUrl(release.html_url)) return null;
+      return availableUpdate(app.getVersion(), release);
+    } catch {
+      return null;
+    }
   });
   createWindow();
   app.on("activate", () => {

@@ -70,6 +70,53 @@ a:focus-visible {
 .macos-desktop .topbar a {
   -webkit-app-region: no-drag;
 }
+.update-banner {
+  min-height: 46px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #cbd1ff;
+  background: #f0f2ff;
+  color: #27358e;
+  font-size: 12px;
+  z-index: 19;
+}
+.update-banner > div,
+.update-actions,
+.update-actions a {
+  display: flex;
+  align-items: center;
+}
+.update-banner > div:first-child {
+  gap: 8px;
+}
+.update-banner span {
+  color: #68709e;
+}
+.update-actions {
+  gap: 8px;
+}
+.update-actions a {
+  gap: 5px;
+  border-radius: 7px;
+  background: #5263d8;
+  color: white;
+  padding: 7px 10px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.update-actions button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px;
+}
 .topbar-left,
 .top-actions,
 .logo,
@@ -1525,6 +1572,13 @@ a:focus-visible {
 }
 
 @media (max-width: 720px) {
+  .update-banner {
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .update-banner span {
+    display: none;
+  }
   .mobile-only {
     display: inline-flex;
   }

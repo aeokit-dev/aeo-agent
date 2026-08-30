@@ -50,6 +50,32 @@ npm run package:dir
 npm run package:mac
 ```
 
+Desktop builds check the public GitHub Releases feed when the app starts. If a
+new stable version exists, an in-app banner links to its download page. A
+dismissed banner stays hidden until another version is released.
+
+## Publish a macOS release
+
+The release workflow builds, signs, notarizes, and publishes the DMG and ZIP
+when a version tag is pushed. Configure these GitHub Actions secrets first:
+
+- `MAC_CSC_LINK`: base64-encoded Developer ID Application `.p12`
+- `MAC_CSC_KEY_PASSWORD`: password for the exported certificate
+- `APPLE_API_KEY`: base64-encoded App Store Connect `.p8` API key
+- `APPLE_API_KEY_ID`: API key ID
+- `APPLE_API_ISSUER`: API key issuer ID
+
+Set the version and push its matching tag:
+
+```bash
+npm version patch
+git push origin main --follow-tags
+```
+
+The app only reports stable, non-draft releases from this repository and opens
+their HTTPS GitHub release page. A failed update check does not interrupt the
+app.
+
 By default the development server proxies `/api` to AeoKit at `http://127.0.0.1:3000`, avoiding browser CORS requirements. Change `VITE_AEOKIT_API_URL`, or use the settings button in the app. Hosted Cloudflare runtimes also require a valid bearer token.
 
 The runtime needs an AI Chat backend configured (`OPENROUTER_API_KEY` or `AI_CHAT_BASE_URL`). This client does not hold model-provider credentials; it only talks to AeoKit.

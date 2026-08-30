@@ -53,6 +53,7 @@ import { parseContentBlocks, serializeContentForClipboard } from "./artifacts";
 import type { AgentStreamEvent } from "../shared/streaming";
 
 const selectedProjectKey = "aeokit-agent-project";
+const dismissedUpdateKey = "aeokit-agent-dismissed-update";
 const chartColors = ["#5263d8", "#d96b3d", "#3a9b78", "#9a5bc4", "#c49a32"];
 const seriesColor = (index: number, color?: string) =>
   color || chartColors[index % chartColors.length];
@@ -98,6 +99,11 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
+  const [availableUpdate, setAvailableUpdate] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;
+  } | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const historySearchRef = useRef<HTMLInputElement>(null);
@@ -109,6 +115,25 @@ export function App() {
     void window.aeokitDesktop.loadSettings().then((saved) => {
       if (saved) setSettings(saved);
     });
+  }, []);
+
+  useEffect(() => {
+    if (!window.aeokitDesktop) return;
+    let live = true;
+    void window.aeokitDesktop
+      .checkForUpdate()
+      .then((update) => {
+        if (
+          live &&
+          update &&
+          localStorage.getItem(dismissedUpdateKey) !== update.latestVersion
+        )
+          setAvailableUpdate(update);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -500,6 +525,19 @@ export function App() {
         </div>
       </header>
 
+      {availableUpdate && (
+        <UpdateBanner
+          update={availableUpdate}
+          onDismiss={() => {
+            localStorage.setItem(
+              dismissedUpdateKey,
+              availableUpdate.latestVersion,
+            );
+            setAvailableUpdate(null);
+          }}
+        />
+      )}
+
       <div className="workspace">
         <aside
           id="chat-history"
@@ -743,6 +781,31 @@ export function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+export function UpdateBanner({
+  update,
+  onDismiss,
+}: {
+  update: { currentVersion: string; latestVersion: string; releaseUrl: string };
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="update-banner" role="status">
+      <div>
+        <strong>AeoKit Agent {update.latestVersion} is available</strong>
+        <span>You’re using {update.currentVersion}.</span>
+      </div>
+      <div className="update-actions">
+        <a href={update.releaseUrl} target="_blank" rel="noreferrer">
+          Download update <ExternalLink size={13} />
+        </a>
+        <button onClick={onDismiss} aria-label="Dismiss update">
+          <X size={15} />
+        </button>
+      </div>
     </div>
   );
 }
