@@ -38,6 +38,10 @@ export function normalizeApiUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+export function requestsPortfolioContext(prompt: string): boolean {
+  return /\b(projects|portfolio|cross[- ]project)\b/i.test(prompt);
+}
+
 export class AeoKitApi {
   constructor(private settings: ClientSettings) {}
 
@@ -148,38 +152,53 @@ export class AeoKitApi {
   agentContext = async (
     projectId: string,
     projectName: string,
+    projects: Project[],
+    prompt: string,
     onProgress?: (label: string) => void,
   ) => {
     if (projectId === "local-workspace")
-      return JSON.stringify({ project: projectName });
-    const paths = [
-      `/projects/${projectId}`,
-      `/projects/${projectId}/dashboard`,
-      `/projects/${projectId}/visibility`,
-      `/projects/${projectId}/prompts`,
-      `/projects/${projectId}/citations`,
-    ];
-    const labels = [
-      "Reading project configuration",
-      "Reading dashboard metrics",
-      "Reading visibility data",
-      "Reading tracked prompts",
-      "Reading citation evidence",
-    ];
-    const values = await Promise.allSettled(
-      paths.map((path, index) =>
-        this.request<unknown>(path).finally(() => onProgress?.(labels[index])),
-      ),
+      return JSON.stringify({ project: projectName, projectCatalog: projects });
+
+    const allProjects = projects.filter(
+      (item) => item.id !== "local-workspace",
     );
-    const context = Object.fromEntries(
-      paths.map((path, index) => [
-        path.split("/").at(-1),
-        values[index].status === "fulfilled"
-          ? values[index].value
-          : { unavailable: true },
-      ]),
+    const selected =
+      allProjects.find((item) => item.id === projectId) ||
+      ({ id: projectId, name: projectName, website: "" } satisfies Project);
+    const targets = requestsPortfolioContext(prompt) ? allProjects : [selected];
+    const evidence = await Promise.all(
+      targets.map(async (target) => {
+        const base = `/projects/${encodeURIComponent(target.id)}`;
+        const paths = {
+          project: base,
+          dashboard: `${base}/dashboard`,
+          visibility: `${base}/visibility`,
+          prompts: `${base}/prompts`,
+          citations: `${base}/citations`,
+        };
+        const values = await Promise.allSettled(
+          Object.values(paths).map((path) => this.request<unknown>(path)),
+        );
+        onProgress?.(`Reading evidence for ${target.name}`);
+        return {
+          project: target,
+          evidence: Object.fromEntries(
+            Object.keys(paths).map((key, index) => [
+              key,
+              values[index].status === "fulfilled"
+                ? values[index].value
+                : { unavailable: true },
+            ]),
+          ),
+        };
+      }),
     );
-    return JSON.stringify(context).slice(0, 120_000);
+    return JSON.stringify({
+      scope: targets.length > 1 ? "all-projects" : "selected-project",
+      selectedProjectId: projectId,
+      projectCatalog: allProjects,
+      projects: evidence,
+    }).slice(0, 120_000);
   };
   sessions = async (projectId: string) =>
     (
