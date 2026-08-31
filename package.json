@@ -8,7 +8,7 @@
     "url": "https://github.com/aeokit-dev/aeo-agent.git"
   },
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
