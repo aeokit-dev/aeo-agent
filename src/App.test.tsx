@@ -47,29 +47,46 @@ describe("Composer", () => {
 });
 
 describe("UpdateBanner", () => {
-  it("links to the release and can be dismissed", () => {
+  it("shows download progress", () => {
+    render(
+      <UpdateBanner
+        update={{
+          state: "downloading",
+          currentVersion: "0.1.0",
+          latestVersion: "0.2.0",
+          percent: 42,
+        }}
+        onInstall={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Downloading AeoKit Agent 0.2.0",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("42% complete");
+  });
+
+  it("restarts to install a downloaded update and can be dismissed", () => {
+    const onInstall = vi.fn();
     const onDismiss = vi.fn();
     render(
       <UpdateBanner
         update={{
+          state: "downloaded",
           currentVersion: "0.1.0",
           latestVersion: "0.2.0",
-          releaseUrl:
-            "https://github.com/aeokit-dev/aeo-agent/releases/tag/v0.2.0",
         }}
+        onInstall={onInstall}
         onDismiss={onDismiss}
       />,
     );
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "AeoKit Agent 0.2.0 is available",
+      "AeoKit Agent 0.2.0 is ready",
     );
-    expect(
-      screen.getByRole("link", { name: /Download update/ }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/aeokit-dev/aeo-agent/releases/tag/v0.2.0",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Restart and update" }));
+    expect(onInstall).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss update" }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });

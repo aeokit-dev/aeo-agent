@@ -18,6 +18,15 @@ const api: AgentDesktopApi = {
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   runtimeRequest: (input) => ipcRenderer.invoke("runtime:request", input),
   checkForUpdate: () => ipcRenderer.invoke("updates:check"),
+  installUpdate: () => ipcRenderer.invoke("updates:install"),
+  onUpdateStatus: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      value: Parameters<Parameters<AgentDesktopApi["onUpdateStatus"]>[0]>[0],
+    ) => listener(value);
+    ipcRenderer.on("updates:status", handler);
+    return () => ipcRenderer.removeListener("updates:status", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("aeokitDesktop", api);
