@@ -2,20 +2,25 @@ import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import electronUpdater from "electron-updater";
 import {
   agentProviders,
   runAcpTurn,
   type ProviderId,
 } from "../server/acp-bridge";
 import { buildAgentPrompt, type AgentMode } from "../shared/agent-experience";
-import {
-  availableUpdate,
-  trustedReleaseUrl,
-  type GitHubRelease,
-} from "../shared/updates";
+import type { DesktopUpdateStatus } from "../shared/electron-api";
+
+const { autoUpdater } = electronUpdater;
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const activeTurns = new Map<string, AbortController>();
+const updateCheckIntervalMs = 15 * 60 * 1000;
+let updateStatus: DesktopUpdateStatus = {
+  state: "idle",
+  currentVersion: app.getVersion(),
+};
+let updateCheck: Promise<unknown> | null = null;
 process.env.AEOKIT_AGENT_ELECTRON = "1";
 process.env.AEOKIT_AGENT_APP_ROOT = app.getAppPath();
 
@@ -76,6 +81,71 @@ function createWindow() {
   if (process.env.ELECTRON_RENDERER_URL)
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   else void window.loadFile(path.join(directory, "../renderer/index.html"));
+}
+
+function publishUpdateStatus(status: DesktopUpdateStatus) {
+  updateStatus = status;
+  for (const window of BrowserWindow.getAllWindows())
+    window.webContents.send("updates:status", status);
+}
+
+function checkForUpdates() {
+  if (!app.isPackaged || updateStatus.state === "downloaded")
+    return Promise.resolve();
+  if (updateCheck) return updateCheck;
+  publishUpdateStatus({
+    state: "checking",
+    currentVersion: app.getVersion(),
+  });
+  updateCheck = autoUpdater.checkForUpdates().finally(() => {
+    updateCheck = null;
+  });
+  return updateCheck;
+}
+
+function configureAutoUpdater() {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("update-available", (info) => {
+    publishUpdateStatus({
+      state: "available",
+      currentVersion: app.getVersion(),
+      latestVersion: info.version,
+    });
+  });
+  autoUpdater.on("download-progress", (progress) => {
+    publishUpdateStatus({
+      state: "downloading",
+      currentVersion: app.getVersion(),
+      latestVersion: updateStatus.latestVersion,
+      percent: Math.round(progress.percent),
+    });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    publishUpdateStatus({
+      state: "downloaded",
+      currentVersion: app.getVersion(),
+      latestVersion: info.version,
+    });
+  });
+  autoUpdater.on("update-not-available", () => {
+    publishUpdateStatus({
+      state: "idle",
+      currentVersion: app.getVersion(),
+    });
+  });
+  autoUpdater.on("error", () => {
+    publishUpdateStatus({
+      state: "error",
+      currentVersion: app.getVersion(),
+      message: "Automatic update failed. It will try again later.",
+    });
+  });
+  void checkForUpdates().catch(() => undefined);
+  setInterval(
+    () => void checkForUpdates().catch(() => undefined),
+    updateCheckIntervalMs,
+  );
 }
 
 app.whenReady().then(() => {
@@ -229,26 +299,17 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("updates:check", async (event) => {
     if (!validSender(event)) throw new Error("Invalid IPC sender");
-    try {
-      const response = await fetch(
-        "https://api.github.com/repos/aeokit-dev/aeo-agent/releases/latest",
-        {
-          headers: {
-            Accept: "application/vnd.github+json",
-            "User-Agent": "AeoKit-Agent",
-          },
-          signal: AbortSignal.timeout(8_000),
-        },
-      );
-      if (!response.ok) return null;
-      const release = (await response.json()) as GitHubRelease;
-      if (!trustedReleaseUrl(release.html_url)) return null;
-      return availableUpdate(app.getVersion(), release);
-    } catch {
-      return null;
-    }
+    void checkForUpdates().catch(() => undefined);
+    return updateStatus;
+  });
+  ipcMain.handle("updates:install", (event) => {
+    if (!validSender(event)) throw new Error("Invalid IPC sender");
+    if (updateStatus.state !== "downloaded") return false;
+    setImmediate(() => autoUpdater.quitAndInstall());
+    return true;
   });
   createWindow();
+  configureAutoUpdater();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

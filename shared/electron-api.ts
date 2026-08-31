@@ -15,6 +15,15 @@ export interface AgentPromptInput {
   mode?: "product_analytics" | "research" | "sql" | "prompts";
 }
 
+export interface DesktopUpdateStatus {
+  state:
+    "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  currentVersion: string;
+  latestVersion?: string;
+  percent?: number;
+  message?: string;
+}
+
 export interface AgentDesktopApi {
   platform: string;
   listAgents(): Promise<DesktopBackend[]>;
@@ -34,10 +43,8 @@ export interface AgentDesktopApi {
     method: string;
     body?: string;
   }): Promise<{ status: number; body: unknown }>;
-  checkForUpdate(): Promise<{
-    currentVersion: string;
-    latestVersion: string;
-    releaseUrl: string;
-  } | null>;
+  checkForUpdate(): Promise<DesktopUpdateStatus>;
+  installUpdate(): Promise<boolean>;
+  onUpdateStatus(listener: (status: DesktopUpdateStatus) => void): () => void;
 }
 import type { AgentStreamEvent } from "./streaming";

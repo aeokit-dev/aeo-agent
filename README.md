@@ -50,9 +50,10 @@ npm run package:dir
 npm run package:mac
 ```
 
-Desktop builds check the public GitHub Releases feed when the app starts. If a
-new stable version exists, an in-app banner links to its download page. A
-dismissed banner stays hidden until another version is released.
+Packaged desktop builds check GitHub Releases at startup and every 15 minutes.
+New stable versions download in the background. Once an update is ready, the
+app can restart and install it; a downloaded update is also installed on the
+next normal quit. macOS automatic updates require a signed release.
 
 ## Publish a macOS release
 

@@ -51,7 +51,7 @@ import type {
 import { agentModes, type AgentMode } from "../shared/agent-experience";
 import { parseContentBlocks, serializeContentForClipboard } from "./artifacts";
 import type { AgentStreamEvent } from "../shared/streaming";
-import { startPeriodicUpdateChecks } from "./update-checks";
+import type { DesktopUpdateStatus } from "../shared/electron-api";
 
 const selectedProjectKey = "aeokit-agent-project";
 const dismissedUpdateKey = "aeokit-agent-dismissed-update";
@@ -100,11 +100,9 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
-  const [availableUpdate, setAvailableUpdate] = useState<{
-    currentVersion: string;
-    latestVersion: string;
-    releaseUrl: string;
-  } | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(
+    null,
+  );
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const historySearchRef = useRef<HTMLInputElement>(null);
@@ -120,25 +118,17 @@ export function App() {
 
   useEffect(() => {
     if (!window.aeokitDesktop) return;
-    let live = true;
-    const checkForUpdate = () => {
-      void window.aeokitDesktop
-        ?.checkForUpdate()
-        .then((update) => {
-          if (
-            live &&
-            update &&
-            localStorage.getItem(dismissedUpdateKey) !== update.latestVersion
-          )
-            setAvailableUpdate(update);
-        })
-        .catch(() => undefined);
+    const showUpdate = (status: DesktopUpdateStatus) => {
+      if (
+        status.latestVersion &&
+        localStorage.getItem(dismissedUpdateKey) === status.latestVersion
+      )
+        return;
+      setUpdateStatus(status);
     };
-    const stopUpdateChecks = startPeriodicUpdateChecks(checkForUpdate);
-    return () => {
-      live = false;
-      stopUpdateChecks();
-    };
+    const unsubscribe = window.aeokitDesktop.onUpdateStatus(showUpdate);
+    void window.aeokitDesktop.checkForUpdate().then(showUpdate);
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -530,18 +520,23 @@ export function App() {
         </div>
       </header>
 
-      {availableUpdate && (
-        <UpdateBanner
-          update={availableUpdate}
-          onDismiss={() => {
-            localStorage.setItem(
-              dismissedUpdateKey,
-              availableUpdate.latestVersion,
-            );
-            setAvailableUpdate(null);
-          }}
-        />
-      )}
+      {updateStatus &&
+        ["available", "downloading", "downloaded", "error"].includes(
+          updateStatus.state,
+        ) && (
+          <UpdateBanner
+            update={updateStatus}
+            onInstall={() => void window.aeokitDesktop?.installUpdate()}
+            onDismiss={() => {
+              if (updateStatus.latestVersion)
+                localStorage.setItem(
+                  dismissedUpdateKey,
+                  updateStatus.latestVersion,
+                );
+              setUpdateStatus(null);
+            }}
+          />
+        )}
 
       <div className="workspace">
         <aside
@@ -792,21 +787,38 @@ export function App() {
 
 export function UpdateBanner({
   update,
+  onInstall,
   onDismiss,
 }: {
-  update: { currentVersion: string; latestVersion: string; releaseUrl: string };
+  update: DesktopUpdateStatus;
+  onInstall: () => void;
   onDismiss: () => void;
 }) {
+  const version = update.latestVersion || "new version";
+  const downloaded = update.state === "downloaded";
+  const downloading = update.state === "downloading";
   return (
     <div className="update-banner" role="status">
       <div>
-        <strong>AeoKit Agent {update.latestVersion} is available</strong>
-        <span>You’re using {update.currentVersion}.</span>
+        <strong>
+          {downloaded
+            ? `AeoKit Agent ${version} is ready`
+            : downloading
+              ? `Downloading AeoKit Agent ${version}`
+              : update.state === "error"
+                ? "Automatic update paused"
+                : `AeoKit Agent ${version} is available`}
+        </strong>
+        <span>
+          {downloaded
+            ? "Restart to finish installing."
+            : downloading
+              ? `${update.percent ?? 0}% complete`
+              : update.message || `You’re using ${update.currentVersion}.`}
+        </span>
       </div>
       <div className="update-actions">
-        <a href={update.releaseUrl} target="_blank" rel="noreferrer">
-          Download update <ExternalLink size={13} />
-        </a>
+        {downloaded && <button onClick={onInstall}>Restart and update</button>}
         <button onClick={onDismiss} aria-label="Dismiss update">
           <X size={15} />
         </button>

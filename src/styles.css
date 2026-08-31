@@ -99,14 +99,13 @@ a:focus-visible {
 .update-actions {
   gap: 8px;
 }
-.update-actions a {
+.update-actions > button:first-child {
   gap: 5px;
   border-radius: 7px;
   background: #5263d8;
   color: white;
   padding: 7px 10px;
   font-weight: 650;
-  text-decoration: none;
 }
 .update-actions button {
   display: grid;
