@@ -32,7 +32,33 @@ export interface ChatMessage {
   artifacts?: VisualizationArtifact[];
   uiActions?: AiChatUiAction[];
   approval?: ApprovalRequest;
+  actions?: AeoKitAction[];
+  permissions?: AgentPermissionRequest[];
   streaming?: boolean;
+}
+
+export interface AgentPermissionRequest {
+  id: string;
+  requestId: string;
+  toolCallId: string;
+  title: string;
+  name: string;
+  input?: unknown;
+  options: Array<{
+    optionId: string;
+    name: string;
+    kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+  }>;
+}
+
+export interface AeoKitAction {
+  id: string;
+  method: "POST" | "PATCH" | "PUT" | "DELETE";
+  path: string;
+  title: string;
+  description: string;
+  risk: "low" | "medium" | "high";
+  body?: Record<string, unknown>;
 }
 
 export interface ApprovalRequest {

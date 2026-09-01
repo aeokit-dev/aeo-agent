@@ -52,6 +52,27 @@ export const agentProviders = () =>
     models: provider.models,
   }));
 
+export function aeokitMcpServer(apiUrl: string, token: string) {
+  const normalized = apiUrl.trim().replace(/\/+$/, "");
+  const base = normalized.startsWith("/")
+    ? `http://127.0.0.1:3000${normalized}`
+    : normalized;
+  const url = new URL(base);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    (url.protocol === "http:" &&
+      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+  )
+    throw new Error("Invalid AeoKit MCP URL");
+  return {
+    url: `${base}/mcp`,
+    headers: [
+      { name: "Accept", value: "application/json, text/event-stream" },
+      ...(token ? [{ name: "Authorization", value: `Bearer ${token}` }] : []),
+    ],
+  };
+}
+
 const binaryPath = (name: string) =>
   path.join(process.cwd(), "node_modules", ".bin", name);
 
@@ -136,6 +157,24 @@ export async function runAcpTurn(
   prompt: string,
   signal: AbortSignal,
   onEvent?: (event: AgentStreamEvent) => void,
+  options?: {
+    mcpServer?: {
+      url: string;
+      headers: Array<{ name: string; value: string }>;
+    };
+    onPermission?: (request: {
+      id: string;
+      toolCallId: string;
+      title: string;
+      name: string;
+      input?: unknown;
+      options: Array<{
+        optionId: string;
+        name: string;
+        kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+      }>;
+    }) => Promise<string | undefined>;
+  },
 ) {
   onEvent?.({
     type: "activity",
@@ -163,16 +202,34 @@ export async function runAcpTurn(
       .client({ name: "aeokit-agent" })
       .onRequest(
         acp.methods.client.session.requestPermission,
-        ({ params }) => ({
-          outcome: {
-            outcome: "selected" as const,
-            optionId:
-              params.options.find((option) => option.kind === "reject_once")
-                ?.optionId ??
-              params.options.at(-1)?.optionId ??
-              "",
-          },
-        }),
+        async ({ params }) => {
+          const reject =
+            params.options.find((option) => option.kind === "reject_once")
+              ?.optionId ?? params.options.at(-1)?.optionId;
+          if (!options?.onPermission)
+            return reject
+              ? { outcome: { outcome: "selected" as const, optionId: reject } }
+              : { outcome: { outcome: "cancelled" as const } };
+          const id = crypto.randomUUID();
+          const selected = await options.onPermission({
+            id,
+            toolCallId: params.toolCall.toolCallId,
+            title: params.toolCall.title || "AeoKit action",
+            name: params.toolCall.name || params.toolCall.kind || "tool",
+            ...(params.toolCall.rawInput !== undefined
+              ? { input: params.toolCall.rawInput }
+              : {}),
+            options: params.options,
+          });
+          return selected
+            ? {
+                outcome: {
+                  outcome: "selected" as const,
+                  optionId: selected,
+                },
+              }
+            : { outcome: { outcome: "cancelled" as const } };
+        },
       )
       .onRequest(acp.methods.client.fs.readTextFile, () => {
         throw new Error("File access is disabled");
@@ -188,75 +245,81 @@ export async function runAcpTurn(
           },
         });
         onEvent?.({ type: "activity", label: "Starting a local ACP session" });
-        return context
-          .buildSession(process.cwd())
-          .withSession(async (session) => {
-            const modelOption = session.newSessionResponse.configOptions?.find(
-              (option) => option.category === "model" || option.id === "model",
-            );
-            if (modelOption) {
-              await context.request(acp.methods.agent.session.setConfigOption, {
-                sessionId: session.sessionId,
-                configId: modelOption.id,
-                value: model,
-              });
-            } else if (model !== providers[providerId].model) {
-              throw new Error(
-                `${providers[providerId].label} does not support model selection`,
-              );
-            }
-            onEvent?.({ type: "activity", label: `Using ${model}` });
-            onEvent?.({
-              type: "activity",
-              label: "Analyzing your AeoKit evidence",
-            });
-            void session.prompt(prompt);
-            let answer = "";
-            for (;;) {
-              const message = await session.nextUpdate();
-              if (message.kind === "stop") {
-                const result = {
-                  answer: cleanAgentAnswer(answer),
-                  stopReason: message.stopReason,
-                };
-                onEvent?.({ type: "done", ...result });
-                return result;
-              }
-              const update = message.update;
-              if (
-                update.sessionUpdate === "agent_message_chunk" &&
-                update.content.type === "text"
-              ) {
-                answer += update.content.text;
-                onEvent?.({ type: "text_delta", delta: update.content.text });
-              } else if (
-                update.sessionUpdate === "tool_call" ||
-                update.sessionUpdate === "tool_call_update"
-              ) {
-                const status =
-                  update.status === "in_progress"
-                    ? "running"
-                    : update.status || "pending";
-                onEvent?.({
-                  type: "tool_call",
-                  id: update.toolCallId,
-                  name: update.name || update.kind || "tool",
-                  label: update.title || update.name || "Using a tool",
-                  status,
-                  ...(update.rawOutput !== undefined
-                    ? {
-                        summary: JSON.stringify(update.rawOutput).slice(0, 300),
-                      }
-                    : {}),
-                });
-              } else if (update.sessionUpdate === "agent_thought_chunk") {
-                onEvent?.({
-                  type: "activity",
-                  label: "Reasoning through the evidence",
-                });
-              }
-            }
+        let sessionBuilder = context.buildSession(process.cwd());
+        if (options?.mcpServer)
+          sessionBuilder = sessionBuilder.withMcpServer({
+            type: "http",
+            name: "aeokit",
+            url: options.mcpServer.url,
+            headers: options.mcpServer.headers,
           });
+        return sessionBuilder.withSession(async (session) => {
+          const modelOption = session.newSessionResponse.configOptions?.find(
+            (option) => option.category === "model" || option.id === "model",
+          );
+          if (modelOption) {
+            await context.request(acp.methods.agent.session.setConfigOption, {
+              sessionId: session.sessionId,
+              configId: modelOption.id,
+              value: model,
+            });
+          } else if (model !== providers[providerId].model) {
+            throw new Error(
+              `${providers[providerId].label} does not support model selection`,
+            );
+          }
+          onEvent?.({ type: "activity", label: `Using ${model}` });
+          onEvent?.({
+            type: "activity",
+            label: "Analyzing your AeoKit evidence",
+          });
+          void session.prompt(prompt);
+          let answer = "";
+          for (;;) {
+            const message = await session.nextUpdate();
+            if (message.kind === "stop") {
+              const result = {
+                answer: cleanAgentAnswer(answer),
+                stopReason: message.stopReason,
+              };
+              onEvent?.({ type: "done", ...result });
+              return result;
+            }
+            const update = message.update;
+            if (
+              update.sessionUpdate === "agent_message_chunk" &&
+              update.content.type === "text"
+            ) {
+              answer += update.content.text;
+              onEvent?.({ type: "text_delta", delta: update.content.text });
+            } else if (
+              update.sessionUpdate === "tool_call" ||
+              update.sessionUpdate === "tool_call_update"
+            ) {
+              const status =
+                update.status === "in_progress"
+                  ? "running"
+                  : update.status || "pending";
+              onEvent?.({
+                type: "tool_call",
+                id: update.toolCallId,
+                name: update.name || update.kind || "tool",
+                label: update.title || update.name || "Using a tool",
+                status,
+                ...(update.rawOutput !== undefined
+                  ? {
+                      summary: JSON.stringify(update.rawOutput).slice(0, 300),
+                    }
+                  : {}),
+              });
+            } else if (update.sessionUpdate === "agent_thought_chunk") {
+              onEvent?.({
+                type: "activity",
+                label: "Reasoning through the evidence",
+              });
+            }
+          }
+        });
       });
   } catch (error) {
     throw new Error(
@@ -299,6 +362,8 @@ export function acpBridgePlugin(): Plugin {
             history?: Array<{ role: string; content: string }>;
             prompt?: string;
             mode?: AgentMode;
+            apiUrl?: string;
+            token?: string;
           };
           if (!input.provider || !(input.provider in providers)) {
             return json(res, 400, { error: "Invalid provider" });
@@ -326,6 +391,12 @@ export function acpBridgePlugin(): Plugin {
             ),
             controller.signal,
             emit,
+            {
+              mcpServer: aeokitMcpServer(
+                input.apiUrl || "/api",
+                input.token || "",
+              ),
+            },
           );
           return res.end();
         } catch (error) {

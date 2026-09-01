@@ -42,12 +42,15 @@ import {
 } from "./api";
 import { capabilities, defaultPrompts } from "./prompts";
 import type {
+  AeoKitAction,
+  AgentPermissionRequest,
   ChatBackend,
   ChatMessage,
   ChatSession,
   Project,
   VisualizationArtifact,
 } from "./types";
+import { parseActions } from "./actions";
 import { agentModes, type AgentMode } from "../shared/agent-experience";
 import { parseContentBlocks, serializeContentForClipboard } from "./artifacts";
 import type { AgentStreamEvent } from "../shared/streaming";
@@ -334,6 +337,16 @@ export function App() {
           setMessages((items) =>
             items.map((item) => {
               if (item.id !== assistantId) return item;
+              if (event.type === "permission_request")
+                return {
+                  ...item,
+                  permissions: [
+                    ...(item.permissions || []).filter(
+                      (value) => value.id !== event.id,
+                    ),
+                    { ...event, requestId: event.requestId },
+                  ],
+                };
               if (event.type === "text_delta")
                 return { ...item, content: item.content + event.delta };
               if (event.type === "done")
@@ -378,12 +391,14 @@ export function App() {
           handleStreamEvent,
           turnController.signal,
         );
+        const parsed = parseActions(answer);
         setMessages((items) =>
           items.map((item) =>
             item.id === assistantId
               ? {
                   ...item,
-                  content: answer,
+                  content: parsed.content,
+                  actions: parsed.actions,
                   activity: turnActivity,
                   streaming: false,
                 }
@@ -393,6 +408,12 @@ export function App() {
         return;
       }
       const response = await api.send(targetId, prompt, backend);
+      const parsedResponse = parseActions(response.assistantMessage.content);
+      response.assistantMessage = {
+        ...response.assistantMessage,
+        content: parsedResponse.content,
+        actions: parsedResponse.actions,
+      };
       setMessages((items) => [
         ...items.filter((item) => item.id !== optimistic.id),
         response.userMessage,
@@ -740,7 +761,7 @@ export function App() {
               </div>
               <div className="messages">
                 {messages.map((message) => (
-                  <Message key={message.id} message={message} />
+                  <Message key={message.id} message={message} api={api} />
                 ))}
                 {sending && !hasStreamingMessage && (
                   <Thinking activity={activity} />
@@ -1039,7 +1060,13 @@ export function Composer({
   );
 }
 
-export function Message({ message }: { message: ChatMessage }) {
+export function Message({
+  message,
+  api,
+}: {
+  message: ChatMessage;
+  api?: AeoKitApi;
+}) {
   if (message.role === "user")
     return (
       <div className="message user-message">
@@ -1122,6 +1149,20 @@ export function Message({ message }: { message: ChatMessage }) {
           </div>
         )}
         {message.approval && <ApprovalCard approval={message.approval} />}
+        {!!message.actions?.length && api && (
+          <div className="action-list">
+            {message.actions.map((action) => (
+              <ActionCard action={action} api={api} key={action.id} />
+            ))}
+          </div>
+        )}
+        {!!message.permissions?.length && (
+          <div className="action-list">
+            {message.permissions.map((permission) => (
+              <PermissionCard permission={permission} key={permission.id} />
+            ))}
+          </div>
+        )}
         {message.citations?.length > 0 && (
           <div className="sources">
             <span>Sources</span>
@@ -1176,6 +1217,133 @@ export function Message({ message }: { message: ChatMessage }) {
         )}
       </div>
     </article>
+  );
+}
+
+export function PermissionCard({
+  permission,
+}: {
+  permission: AgentPermissionRequest;
+}) {
+  const [status, setStatus] = useState<"pending" | "allowed" | "rejected">(
+    "pending",
+  );
+  const choose = async (optionId: string) => {
+    const option = permission.options.find(
+      (value) => value.optionId === optionId,
+    );
+    const accepted = await window.aeokitDesktop?.resolvePermission(
+      permission.requestId,
+      permission.id,
+      optionId,
+    );
+    if (accepted)
+      setStatus(option?.kind.startsWith("allow") ? "allowed" : "rejected");
+  };
+  return (
+    <section className="approval-card medium">
+      <div>
+        <strong>{permission.title}</strong>
+        <p>{permission.name}</p>
+        {permission.input !== undefined && (
+          <pre>{JSON.stringify(permission.input, null, 2)}</pre>
+        )}
+      </div>
+      {status === "pending" ? (
+        <div className="approval-actions">
+          {permission.options.map((option) => (
+            <button
+              className={option.kind === "allow_once" ? "approve" : undefined}
+              key={option.optionId}
+              onClick={() => void choose(option.optionId)}
+            >
+              {option.name}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className={`approval-status ${status}`} role="status">
+          <strong>{status === "allowed" ? "Approved" : "Rejected"}</strong>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function ActionCard({
+  action,
+  api,
+}: {
+  action: AeoKitAction;
+  api: AeoKitApi;
+}) {
+  const storageKey = `aeokit-action-${action.id}`;
+  const [status, setStatus] = useState<
+    "pending" | "running" | "completed" | "rejected" | "failed"
+  >(() => {
+    const stored = localStorage.getItem(storageKey);
+    return stored === "completed" || stored === "rejected" ? stored : "pending";
+  });
+  const [detail, setDetail] = useState("");
+  const run = async () => {
+    setStatus("running");
+    setDetail("");
+    try {
+      const result = await api.executeAction(
+        action.method,
+        action.path,
+        action.body,
+      );
+      localStorage.setItem(storageKey, "completed");
+      setStatus("completed");
+      setDetail(
+        result && typeof result === "object"
+          ? JSON.stringify(result).slice(0, 500)
+          : "AeoKit accepted the action.",
+      );
+    } catch (reason) {
+      setStatus("failed");
+      setDetail(reason instanceof Error ? reason.message : "The action failed");
+    }
+  };
+  const reject = () => {
+    localStorage.setItem(storageKey, "rejected");
+    setStatus("rejected");
+  };
+  return (
+    <section className={`approval-card ${action.risk}`}>
+      <div>
+        <strong>{action.title}</strong>
+        <p>{action.description}</p>
+        <code>
+          {action.method} {action.path}
+        </code>
+      </div>
+      {status === "pending" ? (
+        <div className="approval-actions">
+          <button onClick={reject}>Reject</button>
+          <button className="approve" onClick={() => void run()}>
+            Approve and run
+          </button>
+        </div>
+      ) : (
+        <div className={`approval-status ${status}`} role="status">
+          <strong>
+            {status === "running"
+              ? "Running…"
+              : status === "completed"
+                ? "Completed"
+                : status === "rejected"
+                  ? "Rejected"
+                  : "Failed"}
+          </strong>
+          {detail && <small>{detail}</small>}
+          {status === "failed" && (
+            <button onClick={() => void run()}>Try again</button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

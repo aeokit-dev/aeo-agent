@@ -11,10 +11,36 @@ import {
   Composer,
   Message,
   MessageActions,
+  PermissionCard,
   SettingsDialog,
   UpdateBanner,
   VisualizationCard,
 } from "./App";
+
+describe("PermissionCard", () => {
+  it("shows the exact MCP tool input and adapter choices", () => {
+    render(
+      <PermissionCard
+        permission={{
+          id: "permission-1",
+          requestId: "request-1",
+          toolCallId: "tool-1",
+          title: "Create tracked prompt",
+          name: "aeokit_createPrompt",
+          input: { projectId: "project-1", value: "What is AeoKit?" },
+          options: [
+            { optionId: "yes", name: "Allow once", kind: "allow_once" },
+            { optionId: "no", name: "Reject", kind: "reject_once" },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText("Create tracked prompt")).toBeInTheDocument();
+    expect(screen.getByText(/What is AeoKit/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeVisible();
+  });
+});
 
 afterEach(() => {
   cleanup();
