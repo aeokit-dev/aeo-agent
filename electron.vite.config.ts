@@ -7,8 +7,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve("electron/main.ts"),
-        output: { entryFileNames: "index.js" },
+        input: {
+          index: resolve("electron/main.ts"),
+          "aeokit-mcp": resolve("server/aeokit-mcp-host.ts"),
+        },
+        output: { entryFileNames: "[name].js" },
       },
     },
   },

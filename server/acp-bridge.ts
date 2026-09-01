@@ -64,13 +64,66 @@ export function aeokitMcpServer(apiUrl: string, token: string) {
       !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
   )
     throw new Error("Invalid AeoKit MCP URL");
+  const runtimeUrl = base.replace(/\/api$/, "");
+  const appRoot = (process.env.AEOKIT_AGENT_APP_ROOT || process.cwd()).replace(
+    "app.asar",
+    "app.asar.unpacked",
+  );
   return {
-    url: `${base}/mcp`,
-    headers: [
-      { name: "Accept", value: "application/json, text/event-stream" },
-      ...(token ? [{ name: "Authorization", value: `Bearer ${token}` }] : []),
-    ],
+    server: {
+      command: process.execPath,
+      args: [path.join(appRoot, "out", "main", "aeokit-mcp.js")],
+      env: [
+        { name: "AEOKIT_URL", value: runtimeUrl },
+        { name: "AEOKIT_API_KEY", value: token },
+        { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+      ],
+    },
+    openApiUrl: `${runtimeUrl}/openapi.json`,
+    token,
   };
+}
+
+const requiredAeokitTools = ["aeokit_postProjectsByProjectIdPrompts"];
+
+export async function verifyAeokitMcpCapabilities(
+  connection: ReturnType<typeof aeokitMcpServer>,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(connection.openApiUrl, {
+    headers: {
+      Accept: "application/json",
+      ...(connection.token
+        ? { Authorization: `Bearer ${connection.token}` }
+        : {}),
+    },
+    signal,
+  });
+  const body = await response.text();
+  if (!response.ok)
+    throw new Error(`AeoKit tools are unavailable (HTTP ${response.status})`);
+
+  let payload: {
+    paths?: Record<string, Record<string, { operationId?: string }>>;
+  };
+  try {
+    payload = JSON.parse(body) as typeof payload;
+  } catch {
+    throw new Error("AeoKit tools returned an invalid capability response");
+  }
+  const available = new Set(
+    Object.values(payload.paths ?? {}).flatMap((pathItem) =>
+      Object.values(pathItem).flatMap((operation) =>
+        operation.operationId ? [`aeokit_${operation.operationId}`] : [],
+      ),
+    ),
+  );
+  const missing = requiredAeokitTools.filter((tool) => !available.has(tool));
+  if (missing.length)
+    throw new Error(
+      `AeoKit runtime is missing required operations: ${missing.join(", ")}`,
+    );
+  return available;
 }
 
 const binaryPath = (name: string) =>
@@ -159,8 +212,13 @@ export async function runAcpTurn(
   onEvent?: (event: AgentStreamEvent) => void,
   options?: {
     mcpServer?: {
-      url: string;
-      headers: Array<{ name: string; value: string }>;
+      server: {
+        command: string;
+        args: string[];
+        env: Array<{ name: string; value: string }>;
+      };
+      openApiUrl: string;
+      token: string;
     };
     onPermission?: (request: {
       id: string;
@@ -176,6 +234,10 @@ export async function runAcpTurn(
     }) => Promise<string | undefined>;
   },
 ) {
+  if (options?.mcpServer) {
+    onEvent?.({ type: "activity", label: "Checking AeoKit capabilities" });
+    await verifyAeokitMcpCapabilities(options.mcpServer, signal);
+  }
   onEvent?.({
     type: "activity",
     label: `Connecting to ${providers[providerId].label}`,
@@ -248,10 +310,8 @@ export async function runAcpTurn(
         let sessionBuilder = context.buildSession(process.cwd());
         if (options?.mcpServer)
           sessionBuilder = sessionBuilder.withMcpServer({
-            type: "http",
             name: "aeokit",
-            url: options.mcpServer.url,
-            headers: options.mcpServer.headers,
+            ...options.mcpServer.server,
           });
         return sessionBuilder.withSession(async (session) => {
           const modelOption = session.newSessionResponse.configOptions?.find(
@@ -312,6 +372,14 @@ export async function runAcpTurn(
                     }
                   : {}),
               });
+              if (
+                update.status === "failed" &&
+                update.title === "mcp__aeokit__startup"
+              ) {
+                throw new Error(
+                  "AeoKit tools failed to start. Check the runtime URL and authentication, then retry.",
+                );
+              }
             } else if (update.sessionUpdate === "agent_thought_chunk") {
               onEvent?.({
                 type: "activity",
