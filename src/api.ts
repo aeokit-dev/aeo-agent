@@ -111,6 +111,16 @@ export class AeoKitApi {
       : ((await response.json()) as T);
   }
 
+  executeAction = async (
+    method: "POST" | "PATCH" | "PUT" | "DELETE",
+    path: string,
+    body?: Record<string, unknown>,
+  ) =>
+    this.request<unknown>(path, {
+      method,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+
   projects = async () =>
     (await this.request<{ projects: Project[] }>("/projects")).projects;
   backends = async () =>
@@ -151,6 +161,8 @@ export class AeoKitApi {
           history,
           prompt,
           mode,
+          apiUrl: normalizeApiUrl(this.settings.apiUrl),
+          token: this.settings.token,
         });
         return result.answer;
       } finally {
@@ -168,6 +180,8 @@ export class AeoKitApi {
         history,
         prompt,
         mode,
+        apiUrl: normalizeApiUrl(this.settings.apiUrl),
+        token: this.settings.token,
       }),
       signal,
     });
@@ -237,6 +251,14 @@ export class AeoKitApi {
           visibility: `${base}/visibility`,
           prompts: `${base}/prompts`,
           citations: `${base}/citations`,
+          shareOfVoice: `${base}/share-of-voice`,
+          runs: `${base}/runs`,
+          crawlerTrafficCurrent: `${base}/crawler-traffic`,
+          crawlerTraffic: `${base}/crawler-traffic/history`,
+          aiReferrals: `${base}/ai-referrals`,
+          competitorSuggestions: `${base}/competitor-suggestions`,
+          providers: `/providers?projectId=${encodeURIComponent(target.id)}`,
+          opportunities: `/opportunities?projectId=${encodeURIComponent(target.id)}`,
         };
         const values = await Promise.allSettled(
           Object.values(paths).map((path) => this.request<unknown>(path)),

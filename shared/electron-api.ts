@@ -13,6 +13,8 @@ export interface AgentPromptInput {
   history: Array<{ role: string; content: string }>;
   prompt: string;
   mode?: "product_analytics" | "research" | "sql" | "prompts";
+  apiUrl: string;
+  token: string;
 }
 
 export interface DesktopUpdateStatus {
@@ -31,6 +33,11 @@ export interface AgentDesktopApi {
     input: AgentPromptInput,
   ): Promise<{ answer: string; stopReason: string }>;
   cancel(requestId: string): Promise<boolean>;
+  resolvePermission(
+    requestId: string,
+    permissionId: string,
+    optionId: string,
+  ): Promise<boolean>;
   onProgress(
     listener: (event: { requestId: string; event: AgentStreamEvent }) => void,
   ): () => void;

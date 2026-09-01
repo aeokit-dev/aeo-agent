@@ -6,6 +6,13 @@ const api: AgentDesktopApi = {
   listAgents: () => ipcRenderer.invoke("agents:list"),
   prompt: (input) => ipcRenderer.invoke("agents:prompt", input),
   cancel: (requestId) => ipcRenderer.invoke("agents:cancel", requestId),
+  resolvePermission: (requestId, permissionId, optionId) =>
+    ipcRenderer.invoke(
+      "agents:resolve-permission",
+      requestId,
+      permissionId,
+      optionId,
+    ),
   onProgress: (listener) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

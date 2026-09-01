@@ -1062,6 +1062,26 @@ a:focus-visible {
   margin: 4px 0 0;
   color: var(--muted);
 }
+.approval-card code {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.approval-card pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 65%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.action-list {
+  display: grid;
+  gap: 8px;
+}
 .approval-card .approval-note {
   margin-top: 9px;
   color: #887449;
@@ -1099,6 +1119,12 @@ a:focus-visible {
 }
 .approval-status.approved {
   color: #4e8a58;
+}
+.approval-status.completed {
+  color: #4e8a58;
+}
+.approval-status.failed {
+  color: #a55a54;
 }
 .approval-status.rejected {
   color: #a55a54;

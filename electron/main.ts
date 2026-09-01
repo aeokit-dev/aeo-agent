@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
 import {
+  aeokitMcpServer,
   agentProviders,
   runAcpTurn,
   type ProviderId,
@@ -15,6 +16,10 @@ const { autoUpdater } = electronUpdater;
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const activeTurns = new Map<string, AbortController>();
+const pendingPermissions = new Map<
+  string,
+  { requestId: string; resolve: (optionId?: string) => void }
+>();
 const updateCheckIntervalMs = 15 * 60 * 1000;
 let updateStatus: DesktopUpdateStatus = {
   state: "idle",
@@ -206,7 +211,7 @@ app.whenReady().then(() => {
       if (!validSender(event)) throw new Error("Invalid IPC sender");
       if (
         !input.path?.startsWith("/") ||
-        !["GET", "POST", "DELETE"].includes(input.method)
+        !["GET", "POST", "PATCH", "PUT", "DELETE"].includes(input.method)
       ) {
         throw new Error("Invalid runtime request");
       }
@@ -254,6 +259,8 @@ app.whenReady().then(() => {
         history: Array<{ role: string; content: string }>;
         prompt: string;
         mode?: AgentMode;
+        apiUrl: string;
+        token: string;
       },
     ) => {
       if (!validSender(event)) throw new Error("Invalid IPC sender");
@@ -261,6 +268,13 @@ app.whenReady().then(() => {
         throw new Error("Invalid provider");
       if (!input.prompt?.trim() || input.prompt.length > 100_000)
         throw new Error("Invalid prompt");
+      if (
+        typeof input.apiUrl !== "string" ||
+        input.apiUrl.length > 2_000 ||
+        typeof input.token !== "string" ||
+        input.token.length > 20_000
+      )
+        throw new Error("Invalid AeoKit connection");
       const provider = agentProviders().find(
         (item) => item.id === input.provider,
       )!;
@@ -284,8 +298,42 @@ app.whenReady().then(() => {
               requestId: input.requestId,
               event: streamEvent,
             }),
+          {
+            mcpServer: aeokitMcpServer(input.apiUrl, input.token),
+            onPermission: (permission) =>
+              new Promise<string | undefined>((resolve) => {
+                let settled = false;
+                const finish = (optionId?: string) => {
+                  if (settled) return;
+                  settled = true;
+                  controller.signal.removeEventListener("abort", cancel);
+                  resolve(optionId);
+                };
+                const cancel = () => finish();
+                controller.signal.addEventListener("abort", cancel, {
+                  once: true,
+                });
+                pendingPermissions.set(permission.id, {
+                  requestId: input.requestId,
+                  resolve: finish,
+                });
+                event.sender.send("agents:progress", {
+                  requestId: input.requestId,
+                  event: {
+                    type: "permission_request",
+                    requestId: input.requestId,
+                    ...permission,
+                  },
+                });
+              }),
+          },
         );
       } finally {
+        for (const [id, pending] of pendingPermissions) {
+          if (pending.requestId !== input.requestId) continue;
+          pending.resolve();
+          pendingPermissions.delete(id);
+        }
         activeTurns.delete(input.requestId);
       }
     },
@@ -297,6 +345,17 @@ app.whenReady().then(() => {
     active.abort();
     return true;
   });
+  ipcMain.handle(
+    "agents:resolve-permission",
+    (event, requestId: string, permissionId: string, optionId: string) => {
+      if (!validSender(event)) throw new Error("Invalid IPC sender");
+      const pending = pendingPermissions.get(permissionId);
+      if (!pending || pending.requestId !== requestId) return false;
+      pendingPermissions.delete(permissionId);
+      pending.resolve(optionId);
+      return true;
+    },
+  );
   ipcMain.handle("updates:check", async (event) => {
     if (!validSender(event)) throw new Error("Invalid IPC sender");
     void checkForUpdates().catch(() => undefined);

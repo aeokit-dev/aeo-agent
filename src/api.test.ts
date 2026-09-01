@@ -131,6 +131,7 @@ describe("AeoKitApi", () => {
       listAgents: vi.fn(),
       prompt,
       cancel,
+      resolvePermission: vi.fn(),
       onProgress: vi.fn(() => unsubscribe),
       loadSettings: vi.fn(),
       saveSettings: vi.fn(),
@@ -186,7 +187,7 @@ describe("AeoKitApi", () => {
 
     expect(context.scope).toBe("all-projects");
     expect(context.projects).toHaveLength(2);
-    expect(fetchMock).toHaveBeenCalledTimes(10);
+    expect(fetchMock).toHaveBeenCalledTimes(26);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://example.com/api/projects/two/dashboard",
       expect.any(Object),
@@ -213,6 +214,6 @@ describe("AeoKitApi", () => {
     expect(context.scope).toBe("selected-project");
     expect(context.projectCatalog).toHaveLength(2);
     expect(context.projects).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(13);
   });
 });
