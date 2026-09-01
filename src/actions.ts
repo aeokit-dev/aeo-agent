@@ -26,6 +26,8 @@ const mutationRoutes: Array<{ method: AeoKitAction["method"]; path: RegExp }> =
     { method: "DELETE", path: /^\/prompts\/[^/]+$/ },
     { method: "POST", path: /^\/prompts\/[^/]+\/run$/ },
     { method: "PATCH", path: /^\/opportunities\/[^/]+$/ },
+    { method: "POST", path: /^\/projects\/[^/]+\/experiments$/ },
+    { method: "PATCH", path: /^\/experiments\/[^/]+$/ },
     { method: "POST", path: /^\/run-monitor\/(?:cancel|retry)$/ },
   ];
 

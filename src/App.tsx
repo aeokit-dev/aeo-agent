@@ -95,7 +95,7 @@ export function App() {
   const [backends, setBackends] = useState<ChatBackend[]>([]);
   const [backend, setBackend] = useState<ChatBackend["id"] | undefined>();
   const [model, setModel] = useState("");
-  const [mode, setMode] = useState<AgentMode>("product_analytics");
+  const [mode, setMode] = useState<AgentMode>("optimize");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [activity, setActivity] = useState<string[]>([]);

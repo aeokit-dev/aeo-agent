@@ -12,7 +12,7 @@ export interface AgentPromptInput {
   context: string;
   history: Array<{ role: string; content: string }>;
   prompt: string;
-  mode?: "product_analytics" | "research" | "sql" | "prompts";
+  mode?: "optimize" | "product_analytics" | "research" | "sql" | "prompts";
   apiUrl: string;
   token: string;
 }
