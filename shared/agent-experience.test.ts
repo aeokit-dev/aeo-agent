@@ -36,6 +36,21 @@ describe("buildAgentPrompt", () => {
     );
   });
 
+  it("treats AeoKit as the lifecycle system of record", () => {
+    const prompt = buildAgentPrompt({
+      context: "Project evidence",
+      history: [],
+      prompt: "Improve my AEO over time",
+      mode: "optimize",
+    });
+    expect(prompt).toContain(
+      "audit -> observe baseline -> improve -> record experiment -> observe again -> evaluate",
+    );
+    expect(prompt).toContain(
+      "Never evaluate an experiment from incompatible runs",
+    );
+  });
+
   it("removes leading tool narration without hiding genuine limitations", () => {
     expect(
       cleanAgentAnswer(

@@ -1,10 +1,16 @@
-export type AgentMode = "product_analytics" | "research" | "sql" | "prompts";
+export type AgentMode =
+  "optimize" | "product_analytics" | "research" | "sql" | "prompts";
 
 export const agentModes: Array<{
   id: AgentMode;
   label: string;
   description: string;
 }> = [
+  {
+    id: "optimize",
+    label: "Optimize",
+    description: "Run the audit, observation, improvement, and evaluation loop",
+  },
   {
     id: "product_analytics",
     label: "Product analytics",
@@ -69,7 +75,13 @@ Schema:
 Use only values present in the supplied evidence. Prefer line for ordered time series, bar for category comparisons, table for exact multi-column values, and metric for a single headline value. Keep data below 40 rows and series below 5. Do not put commentary after the final chart block.
 </visualizations>`;
 
+const LIFECYCLE = `<aeo_lifecycle>
+AeoKit is the system of record for prompts, observations, citations, opportunities, changes, and outcomes. Use this lifecycle: audit -> observe baseline -> improve -> record experiment -> observe again -> evaluate. Audit is first-run diagnosis; observe is repeat measurement. Before improving, connect one falsifiable hypothesis to baseline run IDs and metrics. Record affected URLs and the change or commit reference. Never evaluate an experiment from incompatible runs or claim causality from one before/after difference.
+</aeo_lifecycle>`;
+
 const MODE_INSTRUCTIONS: Record<AgentMode, string> = {
+  optimize:
+    "Recover the current lifecycle stage, choose one evidence-backed next step, and preserve experiment traceability. Require approval immediately before cost-bearing runs, AeoKit writes, site changes, or deployment.",
   product_analytics:
     "Analyze AeoKit visibility metrics and generate grounded comparisons. Prefer a visualization when comparing three or more values.",
   research:
@@ -93,5 +105,5 @@ export function buildAgentPrompt(input: {
         `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`,
     )
     .join("\n\n");
-  return `${ROLE}\n\n${STYLE}\n\n${PROACTIVENESS}\n\n${TOOL_POLICY}\n\n${VISUALIZATION_PROTOCOL}\n\n<mode>\n${mode}: ${MODE_INSTRUCTIONS[mode]}\n</mode>\n\n<AeoKit_project_evidence>\n${input.context}\n</AeoKit_project_evidence>\n\n<conversation>\n${transcript || "No earlier messages."}\n</conversation>\n\nUser: ${input.prompt}`;
+  return `${ROLE}\n\n${STYLE}\n\n${PROACTIVENESS}\n\n${TOOL_POLICY}\n\n${LIFECYCLE}\n\n${VISUALIZATION_PROTOCOL}\n\n<mode>\n${mode}: ${MODE_INSTRUCTIONS[mode]}\n</mode>\n\n<AeoKit_project_evidence>\n${input.context}\n</AeoKit_project_evidence>\n\n<conversation>\n${transcript || "No earlier messages."}\n</conversation>\n\nUser: ${input.prompt}`;
 }

@@ -26,4 +26,27 @@ describe("AeoKit actions", () => {
       false,
     );
   });
+
+  it("allows experiment creation and evaluation through approval cards", () => {
+    const base = {
+      id: "experiment",
+      title: "Record experiment",
+      description: "Connect this change to its baseline.",
+      risk: "medium" as const,
+    };
+    expect(
+      isAllowedAction({
+        ...base,
+        method: "POST",
+        path: "/projects/project-id/experiments",
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedAction({
+        ...base,
+        method: "PATCH",
+        path: "/experiments/experiment-id",
+      }),
+    ).toBe(true);
+  });
 });
